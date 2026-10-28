@@ -4479,7 +4479,7 @@ on('btnShowMap', 'click', () => {
   }
 
   // 주간평가 최종 사출 인쇄 단추 연결
-  const finalWkSubmit = document.getElementById('btnSubmitWeeklyFinal');
+ const finalWkSubmit = document.getElementById('btnSubmitWeeklyFinal');
   if(finalWkSubmit) {
       finalWkSubmit.onclick = function() {
           const titleVal = document.getElementById('weeklyTitleInput').value.trim();
@@ -4490,10 +4490,15 @@ on('btnShowMap', 'click', () => {
           const tId = selectEl.value;
           if(!tId) { showCustomAlert('대상 학생을 설정해 주십시오.'); return; }
           const found = MANAGED_STUDENTS.find(s => s.id === tId);
-          const userObj = { id: tId, name: found.name };
+          const userObj = { id: tId, name: found ? found.name : tId };
 
           const qids = Array.from(checkedBoxes).map(cb => cb.value);
-          const customTitle = titleVal || `${found.name} 주간평가(Lv.${document.getElementById('weeklyLevelSlider').value}) - ${new Date().getMonth()+1}월 ${getWeekNumber_()}`;
+          
+          // 프론트엔드 자체 주차 계산 (getWeekNumber_ 미정의 오류 방지)
+          const nowD = new Date();
+          const firstDay = new Date(nowD.getFullYear(), nowD.getMonth(), 1);
+          const weekStr = Math.ceil((nowD.getDate() + firstDay.getDay()) / 7) + '주차';
+          const customTitle = titleVal || `${userObj.name} 주간평가(Lv.${document.getElementById('weeklyLevelSlider').value}) - ${nowD.getMonth()+1}월 ${weekStr}`;
 
           showCustomConfirm(`검토 완료된 ${qids.length}문항을 해당 학생의 주간평가로 정식 배포하고 인쇄용 시험지를 빌드하시겠습니까?`, function() {
               const loadEl = document.getElementById('loadingOverlay');
@@ -4502,17 +4507,26 @@ on('btnShowMap', 'click', () => {
                   loadEl.classList.add('active');
               }
 
+              // 주간평가 플래그(true)를 지원하는 createAssignment 함수 호출
               google.script.run.withSuccessHandler(res => {
+                  if(res && res.error) {
+                      if(loadEl) loadEl.classList.remove('active');
+                      showCustomAlert('주간평가 저장 실패: ' + res.error);
+                      return;
+                  }
                   google.script.run.withSuccessHandler(realQs => {
                       if(loadEl) loadEl.classList.remove('active');
                       const printName = `${userObj.name}(${userObj.id})`;
                       renderQuestionsForPrint(realQs, customTitle, null, printName);
                       document.getElementById('weeklyTitleInput').value = '';
+                  }).withFailureHandler(err => {
+                      if(loadEl) loadEl.classList.remove('active');
+                      showCustomAlert('문항 로드 실패: ' + err);
                   }).getQuestionsByQids(qids);
               }).withFailureHandler(err => {
                   if(loadEl) loadEl.classList.remove('active');
                   showCustomAlert('주간평가 저장 실패: ' + err);
-              }).createBulkAssignments([userObj], customTitle, qids);
+              }).createAssignment(userObj, customTitle, qids, true);
           });
       };
   }
