@@ -2148,11 +2148,18 @@ function switchAdminTab(mode) {
         if(tabCreate) tabCreate.className = 'top-tab';
         if(tabHistory) tabHistory.className = 'top-tab active';
         
-        loadAdminHistory();
+        // 이미 불러온 배부 기록 캐시가 있으면 서버 통신 없이 즉시 렌더링
+        if (ADMIN_HISTORY_CACHE && ADMIN_HISTORY_CACHE.length > 0) {
+            renderHistoryUI();
+        } else {
+            loadAdminHistory();
+        }
     }
 }
 
 /* ===================== 시작 동작 ===================== */
+let SOURCE_FILTERS_CACHE = null; // 필터 메타데이터 캐시
+
 function startQuizEntry(){
   const idInp = document.getElementById('headerUsername').value || document.getElementById('userIdInput').value;
   const inputId = idInp.trim();
@@ -2184,7 +2191,7 @@ function startQuizEntry(){
         if(res.role === 'manager') {
             google.script.run.withSuccessHandler(list => {
                 MANAGED_STUDENTS = list || [];
-                initAdminPage(); // 필터 및 드롭다운 생성
+                initAdminPage(); // 드롭다운 즉시 생성
                 if(loadEl) loadEl.classList.remove('active');
                 routeTo('admin-create'); // 로그인 후 바로 새 과제 탭으로 이동
             }).getManagedStudents(res.id);
@@ -2201,9 +2208,9 @@ function startQuizEntry(){
   }
 }
 
-// [수정된 관리자 페이지 초기화 함수 - 중복 제거됨]
+// [수정된 관리자 페이지 초기화 함수 - 불필요한 초기 블로킹 통신 제거]
 function initAdminPage() {
-    // 1. 학생 선택 드롭다운 채우기
+    // 1. 학생 선택 드롭다운 즉시 채우기
     const selectEl = document.getElementById('targetStudentSelect');
     const weeklySelect = document.getElementById('weeklyStudentSelect');
     const optionsHtml = '<option value="">학생 선택</option>' + 
@@ -2212,28 +2219,23 @@ function initAdminPage() {
     if(selectEl) selectEl.innerHTML = optionsHtml;
     if(weeklySelect) weeklySelect.innerHTML = optionsHtml;
 
-    // 2. [핵심 복구] 주간평가 및 사이드바 유형 칩 생성
-    google.script.run.withSuccessHandler(res => {
-        // 주간평가용 취약유형 칩
-        const weakBox = document.getElementById('weeklyWeakTypeChips');
-        if(weakBox && res.types) {
-            weakBox.innerHTML = '';
-            res.types.forEach(t => {
-                const btn = document.createElement('button');
-                btn.className = 'chip'; btn.textContent = t; btn.value = t;
-                btn.style.width = 'auto'; btn.style.padding = '8px 12px';
-                btn.onclick = function() { this.classList.toggle('selected'); };
-                weakBox.appendChild(btn);
-            });
-        }
-        // 사이드바 공통 유형 칩 (인벤토리용)
-        const invTypeBox = document.getElementById('invTypeChips');
-        if(invTypeBox && res.types) {
-            // 이 부분은 나중에 loadInventoryData가 호출될 때 정렬되어 다시 그려지기도 하지만, 
-            // 초기 렌더링을 위해 유지합니다.
-            renderInvChipsV2('invTypeChips', res.types, 'types', invSelState['common']);
-        }
-    }).getSourceFiltersAndTypes();
+    // 2. 필터 메타데이터는 캐시가 없을 때만 백그라운드에서 1회 로드
+    if (!SOURCE_FILTERS_CACHE) {
+        google.script.run.withSuccessHandler(res => {
+            SOURCE_FILTERS_CACHE = res;
+            const weakBox = document.getElementById('weeklyWeakTypeChips');
+            if(weakBox && res && res.types && weakBox.children.length === 0) {
+                weakBox.innerHTML = '';
+                res.types.forEach(t => {
+                    const btn = document.createElement('button');
+                    btn.className = 'chip'; btn.textContent = t; btn.value = t;
+                    btn.style.width = 'auto'; btn.style.padding = '8px 12px';
+                    btn.onclick = function() { this.classList.toggle('selected'); };
+                    weakBox.appendChild(btn);
+                });
+            }
+        }).getSourceFiltersAndTypes();
+    }
 }
   
 /* ===================== QBank: 칩 ===================== */
@@ -3956,7 +3958,14 @@ function fetchDatamuse(type, isMain) {
     const lowerWord = word.toLowerCase();
     let foundGroup = null;
     
-    // 시트에서 데이터를 불러온 CONFUSING_WORDS_DB 배열이 존재하는지 확인
+  // 혼동어휘 DB가 아직 로드되지 않았다면 최초 1회 로드 후 재실행
+    if ((!CONFUSING_WORDS_DB || CONFUSING_WORDS_DB.length === 0) && hasGsRun()) {
+      google.script.run.withSuccessHandler(data => {
+        CONFUSING_WORDS_DB = data || [];
+        fetchDatamuse(type, isMain);
+      }).getConfusingWordsFromSheet();
+      return;
+    }
     if (typeof CONFUSING_WORDS_DB !== 'undefined' && Array.isArray(CONFUSING_WORDS_DB)) {
       foundGroup = CONFUSING_WORDS_DB.find(group => group.some(w => w.toLowerCase() === lowerWord));
     }
@@ -4514,6 +4523,7 @@ on('btnShowMap', 'click', () => {
                       showCustomAlert('주간평가 저장 실패: ' + res.error);
                       return;
                   }
+                  gADMIN_HISTORY_CACHE = []; // 새 과제 출제 시 배부기록 캐시 무효화
                   google.script.run.withSuccessHandler(realQs => {
                       if(loadEl) loadEl.classList.remove('active');
                       const printName = `${userObj.name}(${userObj.id})`;
@@ -4709,6 +4719,7 @@ document.getElementById('btnPrintChecked').onclick = function() {
 
         // [서버 일괄 생성 호출]
         google.script.run.withSuccessHandler(res => {
+            ADMIN_HISTORY_CACHE = []; // 새 과제 출제 시 배부기록 캐시 무효화
             google.script.run.withSuccessHandler(realQs => {
                 if(loadEl) loadEl.classList.remove('active');
                 const primaryNameWithId = `${targetUsers[0].name}(${targetUsers[0].id})`;
@@ -4723,15 +4734,8 @@ document.getElementById('btnPrintChecked').onclick = function() {
     });
 };
 
-// [수정] 앱 초기화 로직: URL에 파라미터가 있는지 검사하여 분기 처리
+// [수정] 앱 초기화 로직: 초기 진입 시 불필요한 getConfusingWordsFromSheet 호출 제거 (지연 로딩 적용)
 function initApp() {
-  // ★ 추가: 시작과 동시에 혼동어휘 DB 로드
-    if(hasGsRun()) {
-      google.script.run.withSuccessHandler(data => {
-        CONFUSING_WORDS_DB = data || [];
-        console.log("혼동어휘 DB 로드 완료:", CONFUSING_WORDS_DB.length, "그룹");
-      }).getConfusingWordsFromSheet();
-    }
     if(typeof google !== 'undefined' && google.script && google.script.url) {
         google.script.url.getLocation(function(location) {
             if (location.parameters && location.parameters.report) {
@@ -6431,8 +6435,8 @@ function initInventoryFilters() {
   // ★ [핵심] 유형(Type)은 위에서 만든 사용자 지정 순서(sortByType)로 정렬
   const allTypes = [...new Set(INVENTORY_DATA.map(x => x.type).filter(Boolean))].sort(sortByType);
   
-  // ★ [추가] 연쇄 갱신(Cascading) 로직
-  const updateCascadingFilters = (gId, gName) => {
+  // ★ [수정] 연쇄 갱신(Cascading) 로직 - 초기 6개 학년 루프 시 중복 렌더링 방지(skipRender 추가)
+  const updateCascadingFilters = (gId, gName, skipRender = false) => {
       const state = invSelState[gId];
       const gradeData = INVENTORY_DATA.filter(x => x.grade === gName);
 
@@ -6466,19 +6470,19 @@ function initInventoryFilters() {
       }
 
       // 칩 렌더링 및 콜백 연동
-      renderInvChipsV2('invYearChips_' + gId, gYears, 'years', state, () => updateCascadingFilters(gId, gName));
-      renderInvChipsV2('invMonthChips_' + gId, gMonths, 'months', state, () => updateCascadingFilters(gId, gName));
+      renderInvChipsV2('invYearChips_' + gId, gYears, 'years', state, () => updateCascadingFilters(gId, gName, false));
+      renderInvChipsV2('invMonthChips_' + gId, gMonths, 'months', state, () => updateCascadingFilters(gId, gName, false));
       renderInvChipsV2('invDetailChips_' + gId, gDetails, 'details', state, () => renderInventoryTable());
 
-      // 연쇄 처리 후 테이블 최종 갱신
-      renderInventoryTable();
+      // 초기 루프가 아닐 때만 테이블 갱신
+      if (!skipRender) renderInventoryTable();
   };
 
   [ 
     {id: 'm1', name: '중1'}, {id: 'm2', name: '중2'}, {id: 'm3', name: '중3'}, 
     {id: 'h1', name: '고1'}, {id: 'h2', name: '고2'}, {id: 'h3', name: '고3'} 
   ].forEach(g => {
-      updateCascadingFilters(g.id, g.name);
+      updateCascadingFilters(g.id, g.name, true); // 초기 루프에서는 렌더링 생략
   });
 
   renderInvChipsV2('invTypeChips', allTypes, 'types', invSelState['common']);
@@ -7866,7 +7870,12 @@ function loadWeeklyStudentData() {
         loadEl.classList.add('active');
     }
 
-    google.script.run.withSuccessHandler(stats => {
+    // [최적화] 2번 직렬 호출 대신 loadWeeklyStudentBundle 단 1회 호출로 통계+인벤토리 동시 수신
+    google.script.run.withSuccessHandler(bundle => {
+        if(loadEl) loadEl.classList.remove('active');
+        const stats = (bundle && bundle.stats) ? bundle.stats : [];
+        const invData = (bundle && bundle.inventory) ? bundle.inventory : [];
+
         const chipBox = document.getElementById('weeklyWeakTypeChips');
         if (!stats || stats.length === 0) {
             if(statusEl) statusEl.innerHTML = '📝 과거 누적 기록이 없는 학생입니다. 기본 문항 인덱스를 매핑합니다.';
@@ -7894,22 +7903,21 @@ function loadWeeklyStudentData() {
             }
         }
 
-        google.script.run.withSuccessHandler(invData => {
-            if(loadEl) loadEl.classList.remove('active');
-            WEEKLY_INVENTORY_DATA = (invData || []).filter(q => q && q.qid);
-            initWeeklyScopeFilters();
-            renderWeeklyTable();
-        }).getAdminQuestionInventory(val);
-
-    }).getStudentTypeStats(val, 35);
+        WEEKLY_INVENTORY_DATA = invData.filter(q => q && q.qid);
+        initWeeklyScopeFilters();
+        renderWeeklyTable();
+    }).withFailureHandler(err => {
+        if(loadEl) loadEl.classList.remove('active');
+        showCustomAlert('데이터 로드 실패: ' + err);
+    }).loadWeeklyStudentBundle(val, 35);
 }
 
 function renderWkDefaultChips() {
     const chipBox = document.getElementById('weeklyWeakTypeChips');
-    google.script.run.withSuccessHandler(res => {
-        if(chipBox && res.types) {
+    const applyTypes = (types) => {
+        if(chipBox && types) {
             chipBox.innerHTML = '';
-            res.types.forEach(t => {
+            types.forEach(t => {
                 const btn = document.createElement('button');
                 btn.className = 'chip'; btn.textContent = t; btn.value = t;
                 btn.style.cssText = 'width:auto; padding:6px 12px; margin:2px; border-radius:6px; border:1px solid #d1d5db; background:#fff;';
@@ -7917,12 +7925,18 @@ function renderWkDefaultChips() {
                 chipBox.appendChild(btn);
             });
         }
-    }).getSourceFiltersAndTypes();
+    };
+    if (SOURCE_FILTERS_CACHE && SOURCE_FILTERS_CACHE.types) {
+        applyTypes(SOURCE_FILTERS_CACHE.types);
+    } else {
+        google.script.run.withSuccessHandler(res => {
+            SOURCE_FILTERS_CACHE = res;
+            if (res && res.types) applyTypes(res.types);
+        }).getSourceFiltersAndTypes();
+    }
 }
 
 function initWeeklyScopeFilters() {
-    const distinct = (key) => [...new Set(WEEKLY_INVENTORY_DATA.map(x => x[key]).filter(Boolean))].sort();
-    
     const renderWkFilterChips = (containerId, items, category, stateObj, onChangeFn) => {
         const box = document.getElementById(containerId);
         if(!box) return;
@@ -7958,7 +7972,7 @@ function initWeeklyScopeFilters() {
         updateAll();
     };
 
-    const updateWkCascading = (gId, gName) => {
+    const updateWkCascading = (gId, gName, skipRender = false) => {
         const state = weeklySelState[gId];
         const gradeData = WEEKLY_INVENTORY_DATA.filter(x => x.grade === gName);
         const gYears = [...new Set(gradeData.map(x => String(x.year)).filter(Boolean))].sort();
@@ -7967,19 +7981,19 @@ function initWeeklyScopeFilters() {
         if (state.years.size > 0) monthData = monthData.filter(x => state.years.has(String(x.year)));
         const gMonths = [...new Set(monthData.map(x => x.month).filter(Boolean))].sort();
         
-        renderWkFilterChips('wkYearChips_' + gId, gYears, 'years', state, () => updateWkCascading(gId, gName));
+        renderWkFilterChips('wkYearChips_' + gId, gYears, 'years', state, () => updateWkCascading(gId, gName, false));
         renderWkFilterChips('wkMonthChips_' + gId, gMonths, 'months', state, () => renderWeeklyTable());
-        renderWeeklyTable();
+        if (!skipRender) renderWeeklyTable();
     };
 
     [ 
       {id: 'm1', name: '중1'}, {id: 'm2', name: '중2'}, {id: 'm3', name: '중3'}, 
       {id: 'h1', name: '고1'}, {id: 'h2', name: '고2'}, {id: 'h3', name: '고3'} 
     ].forEach(g => {
-        updateWkCascading(g.id, g.name);
+        updateWkCascading(g.id, g.name, true); // 초기 루프 시 6회 중복 렌더링 방지
     });
 }
-
+  
 function renderWeeklyTable() {
     const tbody = document.getElementById('weeklyInvTbody');
     if(!tbody) return;
