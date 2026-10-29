@@ -3324,20 +3324,18 @@ function vocabLoadWordList(forceReload){
   const targetUser = getActiveVocabUser();
   if(!targetUser) return;
   VOCAB_CURRENT_PAGE = 1;
-  
-  // 1. 이미 불러온 데이터(캐시)가 있으면 로딩 없이 바로 화면만 그림
+
   if(!forceReload && VOCAB_CACHE) {
       const statsEl = document.getElementById('vocabStats');
       const addSecEl = document.getElementById('vocabAddWordSection');
       if(statsEl) statsEl.style.display='block';
       if(addSecEl) addSecEl.style.display='block';
-      
+
       renderVocabTableFromData(VOCAB_CACHE);
       vocabUpdateStats();
       return;
   }
 
-  // 2. 캐시가 없으면 서버에서 불러오기 (로딩창 O)
   if(!hasGsRun()){ showCustomAlert('서버 연결에 문제가 있습니다.'); return; }
 
   const loadEl = document.getElementById('loadingOverlay');
@@ -3352,7 +3350,7 @@ function vocabLoadWordList(forceReload){
   if(addSecEl) addSecEl.style.display='block';
 
   vocabUpdateStats();
-  
+
   google.script.run.withSuccessHandler(function(data) {
     if(loadEl) loadEl.classList.remove('active');
     VOCAB_CACHE = data; 
