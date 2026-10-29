@@ -3319,23 +3319,25 @@ function onAdminVocabStudentChange(id) {
   vocabLoadWordList(true);
 }
 
-// vocabLoadWordList 내부 서버 호출부 수정 (getActiveVocabUser 적용)
+// 학생 본인 또는 관리자가 선택한 학생의 단어장을 불러오는 통합 함수
 function vocabLoadWordList(forceReload){
   const targetUser = getActiveVocabUser();
   if(!targetUser) return;
   VOCAB_CURRENT_PAGE = 1;
 
+  // 1. 이미 불러온 데이터(캐시)가 있으면 재요청 없이 바로 렌더링
   if(!forceReload && VOCAB_CACHE) {
       const statsEl = document.getElementById('vocabStats');
       const addSecEl = document.getElementById('vocabAddWordSection');
-      if(statsEl) statsEl.style.display='block';
-      if(addSecEl) addSecEl.style.display='block';
+      if(statsEl) statsEl.style.display = 'block';
+      if(addSecEl) addSecEl.style.display = 'block';
 
       renderVocabTableFromData(VOCAB_CACHE);
       vocabUpdateStats();
       return;
   }
 
+  // 2. 서버에서 단어 목록 로드
   if(!hasGsRun()){ showCustomAlert('서버 연결에 문제가 있습니다.'); return; }
 
   const loadEl = document.getElementById('loadingOverlay');
@@ -3346,8 +3348,8 @@ function vocabLoadWordList(forceReload){
 
   const statsEl = document.getElementById('vocabStats');
   const addSecEl = document.getElementById('vocabAddWordSection');
-  if(statsEl) statsEl.style.display='block';
-  if(addSecEl) addSecEl.style.display='block';
+  if(statsEl) statsEl.style.display = 'block';
+  if(addSecEl) addSecEl.style.display = 'block';
 
   vocabUpdateStats();
 
@@ -3359,46 +3361,6 @@ function vocabLoadWordList(forceReload){
     if(loadEl) loadEl.classList.remove('active');
     showCustomAlert('단어장 불러오기 오류: ' + err);
   }).getVocabulary(targetUser);
-}
-  
-  // 1. 이미 불러온 데이터(캐시)가 있으면 로딩 없이 바로 화면만 그림
-  if(!forceReload && VOCAB_CACHE) {
-      document.getElementById('vocabStats').style.display='block';
-      document.getElementById('vocabAddWordSection').style.display='block';
-      
-      // 저장된 데이터로 바로 표 그리기 (로딩창 X)
-      renderVocabTableFromData(VOCAB_CACHE);
-      vocabUpdateStats(); // 통계는 갱신
-      return;
-  }
-
-  // 2. 캐시가 없으면 서버에서 불러오기 (로딩창 O)
-  if(!hasGsRun()){ showCustomAlert('서버 연결에 문제가 있습니다.'); return; }
-
-  const loadEl = document.getElementById('loadingOverlay');
-  if(loadEl) {
-    loadEl.querySelector('.loading-text').innerHTML = '단어장을 펼치는 중...';
-    loadEl.classList.add('active');
-  }
-
-  document.getElementById('vocabStats').style.display='block';
-  document.getElementById('vocabAddWordSection').style.display='block';
-
-  vocabUpdateStats();
-  
-  google.script.run.withSuccessHandler(function(data) {
-    if(loadEl) loadEl.classList.remove('active');
-    
-    // ★ 데이터 캐싱 (다음에 들어올 때 로딩 안 하려고 저장)
-    VOCAB_CACHE = data; 
-    
-    // 받아온 데이터로 표 그리기
-    renderVocabTableFromData(data);
-
-  }).withFailureHandler(err => {
-    if(loadEl) loadEl.classList.remove('active');
-    showCustomAlert('단어장 불러오기 오류: ' + err);
-  }).getVocabulary(CURRENT_USER);
 }
 
 // [신규] 데이터를 받아서 단어장 표를 그려주는 함수 (내용 생략 없이 꽉 채움)
