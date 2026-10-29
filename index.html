@@ -2744,6 +2744,11 @@ function gradeAll(onSuccessCallback, forceCompleteStatus){
 
       if(hasAnswered) answeredCnt++;
 
+    // 미입력(빈칸) 문항은 이전 시도의 오답 표식이 남아있지 않도록 초기화 (스크롤 타겟에서 제외)
+      if (!hasAnswered && card.getAttribute('data-already-correct') !== 'true') {
+          card.removeAttribute('data-currently-wrong');
+      }
+
       // 3. 결과 표시 UI 분기 (OMR 모드 vs 일반 모드) - 이미 맞은 문제는 UI 재렌더링 생략
       if (hasAnswered && card.getAttribute('data-already-correct') !== 'true') {
           const isOMR = card.classList.contains('omr-card');
@@ -7330,19 +7335,26 @@ function enterInstantRetryMode(assignmentId, qs) {
     updateOMRFooterButtons(false, true, 0, assignmentId, qs);
     
     // 4. 스크롤 이동 제어
-    // - 계속 틀린 문제(data-currently-wrong="true")가 있으면 그 중 첫 번째 문제로 이동
-    // - 다 맞았으면(currentWrong === 0 && currentBlank === 0) 페이지 최상단으로 이동
-    const firstStillWrongCard = document.querySelector('.question-card[data-currently-wrong="true"]');
+    // - 미입력(빈칸)과 맞은 문제(고쳐서 맞은 문제 포함)를 모두 제외하고, 가장 번호가 낮은 '틀린 문제' 1개를 탐색
+    const firstStillWrongCard = document.querySelector('.question-card[data-currently-wrong="true"]:not([data-already-correct="true"])');
+    
     if (firstStillWrongCard) {
         showToast('🔓 오답 잠금이 해제되었습니다. 틀린 문제를 다시 풀어보세요.', 'info');
-        const yOffset = firstStillWrongCard.getBoundingClientRect().top + window.scrollY - 120;
-        window.scrollTo({ top: Math.max(0, yOffset), behavior: 'smooth' });
-    } else if (currentBlank === 0) {
+        setTimeout(() => {
+            const yOffset = firstStillWrongCard.getBoundingClientRect().top + window.scrollY - 120;
+            window.scrollTo({ top: Math.max(0, yOffset), behavior: 'smooth' });
+        }, 50);
+    } else if (currentWrong === 0 && currentBlank === 0) {
+        // 틀린 문제도 없고 빈칸도 없이 100% 다 맞혔을 때만 최상단으로 이동
         showToast('🎉 모든 문제를 맞혔습니다!', 'success');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setTimeout(() => {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }, 50);
+    } else if (currentWrong === 0 && currentBlank > 0) {
+        // 틀린 문제는 없으나 미입력(빈칸)이 남아있는 경우: 최상단으로 강제 이동하지 않고 현재 위치 유지
+        showToast(`✏️ 채점이 반영되었습니다. 미입력된 ${currentBlank}문제를 마저 풀어보세요.`, 'info');
     }
 }
-
 function startRetryAssignment(id, qidsInput, isReviewMode) {
   CURRENT_ASSIGNMENT_ID = id;
   CURRENT_SESSION = id;
