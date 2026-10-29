@@ -1055,6 +1055,7 @@
           <button class="top-tab" id="topTabAdminCreate" type="button" onclick="routeTo('admin-create')">📝 과제출제</button>
           <button class="top-tab" id="topTabAdminWeekly" type="button" onclick="routeTo('weekly')">📅 주간평가</button>
           <button class="top-tab" id="topTabAdminHistory" type="button" onclick="routeTo('admin-history')">📋 배부기록</button>
+          <button class="top-tab" id="topTabAdminVocab" type="button" onclick="routeTo('admin-vocab')">📖 단어장조회</button>
         </div>
       </div>
     </div> <!-- .header-left 종료 -->
@@ -1158,6 +1159,13 @@
   <!-- 단어장 -->
   <div class="panel" id="vocabPage">
     <h2>단어장</h2>
+    <div id="adminVocabBar" style="display:none; background:#eff6ff; border:1px solid #dbeafe; padding:12px; border-radius:10px; margin-bottom:16px; align-items:center; gap:10px; flex-wrap:wrap;">
+      <label style="font-weight:bold; color:#1e40af;">조회 학생:</label>
+      <select id="adminVocabStudentSelect" style="width:180px; margin:0; padding:8px; font-size:14px; border-radius:6px; border:1px solid #cbd5e1;" onchange="onAdminVocabStudentChange(this.value)">
+        <option value="">학생 선택</option>
+      </select>
+      <span id="adminVocabInfo" style="font-size:13px; color:#475569; margin-left:auto;">학생을 선택하면 해당 학생의 단어장과 기록이 표시됩니다.</span>
+    </div>
     <div id="vocabStats" class="vocab-stats" style="margin-top:12px; display:none;">
       <div style="font-weight:700; margin-bottom:8px;">학습 통계</div>
       <div>오늘 입력한 단어: <span id="todayAdded">0</span></div>
@@ -2096,6 +2104,12 @@ else if(mode === 'admin-history') {
   else if(mode === 'weekly') {
     document.getElementById('topTabAdminWeekly').classList.add('active');
     showPanel('weeklyMakerPage');
+  }
+  else if(mode === 'admin-vocab') {
+    const tab = document.getElementById('topTabAdminVocab');
+    if(tab) tab.classList.add('active');
+    showPanel('vocabPage');
+    initAdminVocabMode();
   }
 }
 
@@ -3251,9 +3265,93 @@ function vocabCorrectTypo(word){
   const lower = String(word||'').toLowerCase();
   return VOCAB_TYPO[lower] || word;
 }
+let ADMIN_TARGET_VOCAB_USER = null;
+
+function getActiveVocabUser() {
+  if (CURRENT_USER && CURRENT_USER.role === 'manager' && ADMIN_TARGET_VOCAB_USER) {
+    return ADMIN_TARGET_VOCAB_USER;
+  }
+  return CURRENT_USER;
+}
+
+function initAdminVocabMode() {
+  const bar = document.getElementById('adminVocabBar');
+  const addSec = document.getElementById('vocabAddWordSection');
+  
+  if (CURRENT_USER && CURRENT_USER.role === 'manager') {
+    if (bar) bar.style.display = 'flex';
+    // 관리자도 단어를 직접 추가/수정할 수 있도록 단어 추가 섹션 노출
+    if (addSec) addSec.style.display = 'block';
+    
+    // 관리 학생 드롭다운 채우기
+    const sel = document.getElementById('adminVocabStudentSelect');
+    if (sel && MANAGED_STUDENTS.length > 0 && sel.children.length <= 1) {
+      sel.innerHTML = '<option value="">학생 선택</option>' + 
+        MANAGED_STUDENTS.map(s => `<option value="${s.id}" data-name="${s.name}">${s.name} (${s.id})</option>`).join('');
+    }
+    
+    // 만약 선택된 학생이 없다면 빈 상태 유지
+    if (!ADMIN_TARGET_VOCAB_USER) {
+      document.getElementById('wordList').innerHTML = '<div style="padding:40px; text-align:center; color:#6b7280;">조회할 학생을 선택해주세요.</div>';
+      document.getElementById('vocabStats').style.display = 'none';
+      return;
+    }
+  } else {
+    if (bar) bar.style.display = 'none';
+    if (addSec) addSec.style.display = 'block';
+    vocabLoadWordList();
+  }
+}
+
+function onAdminVocabStudentChange(id) {
+  if (!id) {
+    ADMIN_TARGET_VOCAB_USER = null;
+    document.getElementById('wordList').innerHTML = '<div style="padding:40px; text-align:center; color:#6b7280;">조회할 학생을 선택해주세요.</div>';
+    document.getElementById('vocabStats').style.display = 'none';
+    return;
+  }
+  const sel = document.getElementById('adminVocabStudentSelect');
+  const opt = sel.options[sel.selectedIndex];
+  const name = opt.getAttribute('data-name');
+  
+  ADMIN_TARGET_VOCAB_USER = { id: id, name: name };
+  VOCAB_CACHE = null; // 캐시 초기화 후 새로 로드
+  vocabLoadWordList(true);
+}
+
+// vocabLoadWordList 내부 서버 호출부 수정 (getActiveVocabUser 적용)
 function vocabLoadWordList(forceReload){
-  if(!CURRENT_USER) return;
+  const targetUser = getActiveVocabUser();
+  if(!targetUser) return;
   VOCAB_CURRENT_PAGE = 1;
+  
+  if(!forceReload && VOCAB_CACHE) {
+      document.getElementById('vocabStats').style.display='block';
+      renderVocabTableFromData(VOCAB_CACHE);
+      vocabUpdateStats();
+      return;
+  }
+
+  if(!hasGsRun()){ showCustomAlert('서버 연결에 문제가 있습니다.'); return; }
+
+  const loadEl = document.getElementById('loadingOverlay');
+  if(loadEl) {
+    loadEl.querySelector('.loading-text').innerHTML = '단어장을 펼치는 중...';
+    loadEl.classList.add('active');
+  }
+
+  document.getElementById('vocabStats').style.display='block';
+  vocabUpdateStats();
+  
+  google.script.run.withSuccessHandler(function(data) {
+    if(loadEl) loadEl.classList.remove('active');
+    VOCAB_CACHE = data; 
+    renderVocabTableFromData(data);
+  }).withFailureHandler(err => {
+    if(loadEl) loadEl.classList.remove('active');
+    showCustomAlert('단어장 불러오기 오류: ' + err);
+  }).getVocabulary(targetUser);
+}
   
   // 1. 이미 불러온 데이터(캐시)가 있으면 로딩 없이 바로 화면만 그림
   if(!forceReload && VOCAB_CACHE) {
@@ -3770,22 +3868,34 @@ function vocabSetupCheckboxListeners(){
   }
 }
 function vocabUpdateStats(){
+  const targetUser = getActiveVocabUser();
+  if(!targetUser) return;
+
+  // 한국 시간(KST) 기준 오늘 날짜 문자열(yyyy-MM-dd) 생성
+  const tz = 'Asia/Seoul';
+  const today = Utilities ? null : new Date().toLocaleDateString('en-CA', { timeZone: tz }); 
+  // 브라우저 환경 표준 KST 날짜 계산
   const now = new Date();
-  const today = now.toISOString().slice(0, 10);
+  const kstDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 
   google.script.run.withSuccessHandler(function(logData) {
     const arr = Array.isArray(logData) ? logData : [];
-    const todayAdded = arr.filter(d => d.name === CURRENT_USER && d.action === 'add' && d.date === today).length;
-    const todayMemorized = arr.filter(d => d.name === CURRENT_USER && d.action === 'memorize' && d.date === today).length;
+    const todayAdded = arr.filter(d => d.action === 'add' && d.date === kstDateStr).length;
+    const todayMemorized = arr.filter(d => d.action === 'memorize' && d.date === kstDateStr).length;
 
     const todayQuiz = parseInt(sessionStorage.getItem('vocab_todayQuiz') || '0', 10);
     const todayCorrect = parseInt(sessionStorage.getItem('vocab_todayCorrect') || '0', 10);
 
-    document.getElementById('todayAdded').innerText = todayAdded;
-    document.getElementById('todayMemorized').innerText = todayMemorized;
-    document.getElementById('todayQuiz').innerText = todayQuiz;
-    document.getElementById('todayCorrect').innerText = todayCorrect;
-  }).getDailyLogs(CURRENT_USER);
+    const addEl = document.getElementById('todayAdded');
+    const memoEl = document.getElementById('todayMemorized');
+    const qEl = document.getElementById('todayQuiz');
+    const cEl = document.getElementById('todayCorrect');
+
+    if(addEl) addEl.innerText = todayAdded;
+    if(memoEl) memoEl.innerText = todayMemorized;
+    if(qEl) qEl.innerText = todayQuiz;
+    if(cEl) cEl.innerText = todayCorrect;
+  }).getDailyLogs(targetUser);
 }
 function vocabUpdateQuizStats(correct, total){
   const todayQuiz = parseInt(sessionStorage.getItem('vocab_todayQuiz') || '0', 10) + total;
