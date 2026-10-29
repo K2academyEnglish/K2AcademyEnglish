@@ -3608,6 +3608,12 @@ function vocabEnableEdit(btn, oldWord, oldMeaning) {
 
 // [수정됨] 수정 내용 저장 (DOM 구조 변경 대응)
 function vocabSaveEdit(btn, oldWord) {
+  const targetUser = getActiveVocabUser();
+  if (!targetUser || (CURRENT_USER && CURRENT_USER.role === 'manager' && !ADMIN_TARGET_VOCAB_USER)) {
+    showCustomAlert('조회할 학생을 먼저 선택해주세요.');
+    return;
+  }
+
   // 1. 위와 마찬가지로 부모 td 찾기
   const tdAction = btn.closest('td');
   const tdMeaning = tdAction.previousElementSibling;
@@ -3646,11 +3652,15 @@ function vocabSaveEdit(btn, oldWord) {
       console.log("단어 수정 백그라운드 실패", err);
       showToast('서버 저장 지연 발생: ' + err, 'error');
     })
-    .editWord(CURRENT_USER, oldWord, newWord, newMeaning);
+    .editWord(targetUser, oldWord, newWord, newMeaning);
 }
 
 function vocabSubmitWordToBoth(){
-  if(!CURRENT_USER){ showCustomAlert('이름을 먼저 입력해 주세요.'); return; }
+  const targetUser = getActiveVocabUser();
+  if(!targetUser || (CURRENT_USER && CURRENT_USER.role === 'manager' && !ADMIN_TARGET_VOCAB_USER)){
+    showCustomAlert('단어를 추가할 학생을 먼저 선택해 주세요.');
+    return;
+  }
   let word = document.getElementById('newWord').value.trim();
   const meaning = document.getElementById('newMeaning').value.trim();
   if (!word || !meaning) {
@@ -3688,7 +3698,7 @@ function vocabSubmitWordToBoth(){
       .withFailureHandler(function(err){
         console.log("뜻 병합 백그라운드 실패", err);
       })
-      .updateWordMeaning(CURRENT_USER, word, updatedMeaning);
+      .updateWordMeaning(targetUser, word, updatedMeaning);
     return;
   }
 
@@ -3714,7 +3724,7 @@ function vocabSubmitWordToBoth(){
     .withFailureHandler(function(err){
         console.log("새 단어 추가 백그라운드 실패", err);
     })
-    .addWordToFormAndSheet(CURRENT_USER, word, meaning);
+    .addWordToFormAndSheet(targetUser, word, meaning);
 }
 
 function vocabToggleTestMenu() {
@@ -3741,7 +3751,8 @@ function vocabStartInlineTest(direction){
     return;
   }
 
-  const rangeData = VOCAB_FULL.filter(d => d.number >= start && d.number <= end && !d.memorized);
+  const sourceList = Array.isArray(VOCAB_CACHE) ? VOCAB_CACHE : [];
+  const rangeData = sourceList.filter(d => d.number >= start && d.number <= end && !d.memorized);
   const selected = rangeData.sort(() => Math.random() - 0.5).slice(0, count);
 
   document.getElementById('wordList').style.display = 'none';
@@ -3809,6 +3820,9 @@ function vocabSetupCheckboxListeners(){
       
       // 이벤트 발생 대상이 '외움' 체크박스인지 확인
       if (target && target.classList.contains('memorized-checkbox')) {
+        const targetUser = getActiveVocabUser();
+        if (!targetUser) return;
+
         const word = target.dataset.word;
         const isChecked = target.checked;
         
@@ -3829,7 +3843,7 @@ function vocabSetupCheckboxListeners(){
           .withFailureHandler(function(err) {
              console.log("외움 상태 백그라운드 저장 지연", err);
           })
-          .setWordMemorized(CURRENT_USER, word, isChecked);
+          .setWordMemorized(targetUser, word, isChecked);
       }
     });
     
@@ -3841,10 +3855,7 @@ function vocabUpdateStats(){
   const targetUser = getActiveVocabUser();
   if(!targetUser) return;
 
-  // 한국 시간(KST) 기준 오늘 날짜 문자열(yyyy-MM-dd) 생성
-  const tz = 'Asia/Seoul';
-  const today = Utilities ? null : new Date().toLocaleDateString('en-CA', { timeZone: tz }); 
-  // 브라우저 환경 표준 KST 날짜 계산
+  // 브라우저 환경 표준 KST 날짜 계산 (Utilities 참조 오류 제거)
   const now = new Date();
   const kstDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 
@@ -3867,6 +3878,7 @@ function vocabUpdateStats(){
     if(cEl) cEl.innerText = todayCorrect;
   }).getDailyLogs(targetUser);
 }
+  
 function vocabUpdateQuizStats(correct, total){
   const todayQuiz = parseInt(sessionStorage.getItem('vocab_todayQuiz') || '0', 10) + total;
   const todayCorrect = parseInt(sessionStorage.getItem('vocab_todayCorrect') || '0', 10) + correct;
