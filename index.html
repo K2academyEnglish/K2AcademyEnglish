@@ -2068,23 +2068,29 @@ function routeTo(mode, isPopState = false){
       window.history.pushState({ page: mode }, '', '#' + mode);
   }
   
-  // 모든 탭 하이라이트 제거
- if(mode === 'quiz') {
-    document.getElementById('topTabQuiz').classList.add('active');
+  // ★ 모든 상단 탭에서 파란색(active)을 먼저 싹 지워줌
+  document.querySelectorAll('.top-tab').forEach(t => t.classList.remove('active'));
+
+  if(mode === 'quiz') {
+    const tab = document.getElementById('topTabQuiz');
+    if(tab) tab.classList.add('active');
     showPanel('selectPage');
   } 
   else if(mode === 'wrong') {
-    document.getElementById('topTabWrong').classList.add('active');
+    const tab = document.getElementById('topTabWrong');
+    if(tab) tab.classList.add('active');
     showPanel('wrongPage');
     loadWrongStats();
   } 
   else if(mode === 'vocab') {
-    document.getElementById('topTabVocab').classList.add('active');
+    const tab = document.getElementById('topTabVocab');
+    if(tab) tab.classList.add('active');
     showPanel('vocabPage');
     vocabLoadWordList();
   } 
   else if(mode === 'assignment') {
-    document.getElementById('topTabAssignment').classList.add('active');
+    const tab = document.getElementById('topTabAssignment');
+    if(tab) tab.classList.add('active');
     showPanel('assignmentPage');
     loadMyAssignments();
   }
@@ -2094,15 +2100,16 @@ function routeTo(mode, isPopState = false){
     if(tab) tab.classList.add('active');
     showPanel('adminMakerPage');
     switchAdminTab('create'); 
-}
-else if(mode === 'admin-history') {
+  }
+  else if(mode === 'admin-history') {
     const tab = document.getElementById('topTabAdminHistory');
     if(tab) tab.classList.add('active');
     showPanel('adminMakerPage');
-    switchAdminTab('history'); // 이제 정상 작동함
-}
+    switchAdminTab('history');
+  }
   else if(mode === 'weekly') {
-    document.getElementById('topTabAdminWeekly').classList.add('active');
+    const tab = document.getElementById('topTabAdminWeekly');
+    if(tab) tab.classList.add('active');
     showPanel('weeklyMakerPage');
   }
   else if(mode === 'admin-vocab') {
@@ -2139,8 +2146,8 @@ function switchAdminTab(mode) {
         }
         
         // 탭 스타일 변경
-        if(tabCreate) tabCreate.className = 'top-tab active';
-        if(tabHistory) tabHistory.className = 'top-tab';
+        if(tabCreate) tabCreate.classList.add('active');
+        if(tabHistory) tabHistory.classList.remove('active');
         
         renderInventoryTable();
     } else {
@@ -2159,8 +2166,8 @@ function switchAdminTab(mode) {
         }
 
         // 탭 스타일 변경
-        if(tabCreate) tabCreate.className = 'top-tab';
-        if(tabHistory) tabHistory.className = 'top-tab active';
+        if(tabCreate) tabCreate.classList.remove('active');
+        if(tabHistory) tabHistory.classList.add('active');
         
         // 이미 불러온 배부 기록 캐시가 있으면 서버 통신 없이 즉시 렌더링
         if (ADMIN_HISTORY_CACHE && ADMIN_HISTORY_CACHE.length > 0) {
@@ -7478,17 +7485,6 @@ function startRetryAssignment(id, qidsInput, isReviewMode) {
 // =========================================================
 // [신규] 주간평가 전용 로직 (탭 이동, 학년 토글, 출제 동작)
 // =========================================================
-
-// 1. 주간평가 탭 클릭 시 화면 전환
-const weeklyTab = document.getElementById('topTabAdminWeekly');
-if (weeklyTab) {
-    weeklyTab.addEventListener('click', function() {
-        document.querySelectorAll('.top-tab').forEach(t => t.classList.remove('active'));
-        this.classList.add('active');
-        showPanel('weeklyMakerPage');
-        hideFooter();
-    });
-}
 
 // 2. 출제 버튼 클릭 로직
 const btnGenerateWeekly = document.getElementById('btnGenerateWeekly');
