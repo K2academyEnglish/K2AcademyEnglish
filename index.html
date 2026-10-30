@@ -610,7 +610,10 @@
           word-break: break-all !important; 
           white-space: normal !important; 
       }
-      .btn-reprint { display: none !important; } /* 재출력 버튼만 날림 */
+
+      .btn-reprint, .btn-reprint-wrong { display: none !important; } /* 재출력 및 오답만 버튼 날림 */
+
+      /* 아랫줄 (유지) */
       .btn-detail, .btn-report { padding: 4px !important; font-size: 11px !important; width: 100%; box-sizing: border-box; }
       #historyTbody td:last-child { display: flex; flex-direction: column; gap: 4px; }
       
@@ -1438,7 +1441,7 @@
                     <th style="padding:12px;">제목</th>
                     <th style="padding:12px; width:60px;">문항수</th>
                     <th style="padding:12px; width:120px;">상태</th>
-                    <th style="padding:12px; width:220px;">관리</th>
+                    <th style="padding:12px; width:270px;">관리</th>
                 </tr>
             </thead>
             <tbody id="historyTbody">
@@ -7052,6 +7055,7 @@ function renderHistoryUI() {
             ${reportBtnHtml}
             <button class="btn-detail" style="padding:4px 6px; font-size:12px; border:1px solid #2b6cb0; background:#fff; color:#2b6cb0; border-radius:4px; cursor:pointer;">📊 결과</button>
             <button class="btn-reprint" style="padding:4px 6px; font-size:12px; border:1px solid #2b6cb0; background:#fff; color:#2b6cb0; border-radius:4px; cursor:pointer;">🖨️ 재출력</button>
+            <button class="btn-reprint-wrong" style="padding:4px 6px; font-size:12px; border:1px solid #dc2626; background:#fff; color:#dc2626; border-radius:4px; cursor:pointer;">오답만</button>
          </div>
        </td>
     `;
@@ -7095,6 +7099,57 @@ function doReprintAssignment(studentName, qidsStr, originalTitle, originalDate, 
   }).getQuestionsByQids(qids);
 }
 
+// 3-2. 오답만 출력 기능 (현재 오답 + 고쳐서 맞힌 문항 필터링)
+function doReprintWrongOnly(studentName, qidsStr, originalTitle, originalDate, studentId, assignmentId) {
+  let qids = [];
+  try { qids = JSON.parse(qidsStr); } catch(e) { showCustomAlert('데이터 오류'); return; }
+  
+  if(!qids || !qids.length) return;
+  if(!studentId || studentId === "undefined") {
+     showCustomAlert('오류: 학생 ID를 찾을 수 없습니다.');
+     return;
+  }
+
+  const loadEl = document.getElementById('loadingOverlay');
+  if(loadEl) {
+     loadEl.querySelector('.loading-text').innerHTML = '오답 문제를 추출하여 문제지를 생성 중...';
+     loadEl.classList.add('active');
+  }
+
+  google.script.run.withSuccessHandler(res => {
+     if(loadEl) loadEl.classList.remove('active');
+     
+     const qs = res.qs || [];
+     const history = res.history || {};
+
+     // 오답 필터링: 제출 기록이 존재하며, 현재 오답(isCorrect === false)이거나 고쳐서 맞힌 문항(wasWrong === true 또는 wrongCount > 0)
+     const wrongQs = qs.filter(q => {
+        const record = history[q.qid];
+        if (!record || record.empty) return false;
+        
+        const selected = String(record.selected || '').trim();
+        if (!selected || selected === '-') return false; // 미제출(빈칸) 제외
+
+        return (record.isCorrect === false || record.wasWrong === true || (record.wrongCount && record.wrongCount > 0));
+     });
+
+     if (wrongQs.length === 0) {
+        showCustomAlert('출력할 오답 문항이 없습니다.\n(모두 한 번에 맞혔거나 아직 제출된 답안이 없습니다.)');
+        return;
+     }
+
+     const baseTitle = originalTitle || (studentName + ' 학생의 과제');
+     const finalTitle = baseTitle + ' (오답만)';
+     const printName = studentId ? `${studentName}(${studentId})` : studentName;
+     
+     renderQuestionsForPrint(wrongQs, finalTitle, originalDate, printName);
+
+  }).withFailureHandler(err => {
+     if(loadEl) loadEl.classList.remove('active');
+     showCustomAlert('오답 문제 로드 실패: ' + err);
+  }).loadRetryData(studentId, qids, assignmentId);
+}
+  
 function showAssignmentDetail(studentId, qidsStr, title, assignmentId) {
   const modal = document.getElementById('adminDetailModal');
   const body = document.getElementById('adminDetailBody');
