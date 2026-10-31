@@ -7065,7 +7065,7 @@ function renderHistoryUI() {
         tr.querySelector('.btn-report').onclick = () => openWeeklyReport(row.id);
     }
     tr.querySelector('.btn-reprint').onclick = () => doReprintAssignment(row.student, row.qids, row.title, row.date, row.studentId);
-    
+    tr.querySelector('.btn-reprint-wrong').onclick = () => doReprintWrongOnly(row.student, row.qids, row.title, row.date, row.studentId, row.id);    
     fragment.appendChild(tr);
   });
   tbody.appendChild(fragment);
@@ -7102,7 +7102,11 @@ function doReprintAssignment(studentName, qidsStr, originalTitle, originalDate, 
 // 3-2. 오답만 출력 기능 (현재 오답 + 고쳐서 맞힌 문항 필터링)
 function doReprintWrongOnly(studentName, qidsStr, originalTitle, originalDate, studentId, assignmentId) {
   let qids = [];
-  try { qids = JSON.parse(qidsStr); } catch(e) { showCustomAlert('데이터 오류'); return; }
+  if (Array.isArray(qidsStr)) {
+     qids = qidsStr;
+  } else {
+     try { qids = JSON.parse(qidsStr); } catch(e) { showCustomAlert('데이터 오류'); return; }
+  }
   
   if(!qids || !qids.length) return;
   if(!studentId || studentId === "undefined") {
