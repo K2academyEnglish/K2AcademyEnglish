@@ -5115,11 +5115,9 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName){
 
   printZone.innerHTML = controlsHTML + pageLayoutHTML;
 
-    const rawTitleClean = rawTitle.replace(/["'\\]/g, ' ').replace(/\s+/g, ' ').trim();
-
   const printStyle = document.createElement('style');
   printStyle.innerHTML = `
-    /* 출력용 색상 보존 */
+    /* 출력용 강력한 색상 보존 */
     #printSection .txt-red { color: #dc2626 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     #printSection .txt-blue { color: #2b6cb0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     #printSection .txt-green { color: #059669 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -5140,7 +5138,43 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName){
         display: block !important;
     }
 
-    /* 하단 로고 스타일 */
+    /* 미리보기에서도 이미지를 미리 디코딩하도록 display:none 대신 투명 처리 */
+    .print-running-header {
+        display: flex;
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 12mm;
+        opacity: 0;
+        pointer-events: none;
+        z-index: -1;
+    }
+    .running-title-txt {
+        flex: 1;
+        font-size: 10pt;
+        font-weight: bold;
+        margin-right: 8px;
+        color: #6b7280;
+        text-align: left;
+    }
+    .running-qr-wrap {
+        position: absolute;
+        right: 25%;
+        bottom: 1.5mm;
+        transform: translateX(50%);
+        font-size: 0;
+        display: flex;
+        align-items: flex-end;
+    }
+    #printSection .running-qr-img {
+        height: 9mm !important;
+        max-height: 9mm !important;
+        width: auto !important;
+        margin: 0 !important;
+        border: none !important;
+        display: block !important;
+        object-fit: contain !important;
+    }
+
     .print-running-footer {
         display: flex;
         justify-content: center;
@@ -5159,82 +5193,31 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName){
     }
 
     @media print {
-      /* 1페이지: 1페이지 전용 메인 헤더가 있으므로 상단 여백 헤더를 비움 */
-      @page :first {
-        size: A4;
-        margin-top: 10mm !important;
-        margin-bottom: 12mm !important;
-        margin-left: 15mm !important;
-        margin-right: 15mm !important;
-        @top-left { content: none; }
-        @top-right { content: none; }
-      }
-
-      /* 짝수 페이지 (Page 2, 4...): QR 좌측 / 제목 우측 */
-      @page :left {
-        size: A4;
-        margin-top: 14mm !important;
-        margin-bottom: 12mm !important;
-        margin-left: 15mm !important;
-        margin-right: 15mm !important;
-        @top-left {
-          content: url("https://i.imgur.com/R9QpYH9.jpeg");
-          width: 8mm;
-          height: 8mm;
-          vertical-align: middle;
-        }
-        @top-right {
-          content: "${rawTitleClean}";
-          font-family: "Malgun Gothic", sans-serif;
-          font-size: 9.5pt;
-          font-weight: bold;
-          vertical-align: middle;
-          color: #374151;
-        }
-      }
-
-      /* 홀수 페이지 (Page 3, 5...): 제목 좌측 / QR 우측 */
-      @page :right {
-        size: A4;
-        margin-top: 14mm !important;
-        margin-bottom: 12mm !important;
-        margin-left: 15mm !important;
-        margin-right: 15mm !important;
-        @top-left {
-          content: "${rawTitleClean}";
-          font-family: "Malgun Gothic", sans-serif;
-          font-size: 9.5pt;
-          font-weight: bold;
-          vertical-align: middle;
-          color: #374151;
-        }
-        @top-right {
-          content: url("https://i.imgur.com/R9QpYH9.jpeg");
-          width: 8mm;
-          height: 8mm;
-          vertical-align: middle;
-        }
-      }
+      @page { size: A4; margin: 10mm 15mm 10mm 15mm !important; }
       
-      html, body {
-        height: auto !important;
-        min-height: 0 !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        overflow: visible !important;
-        display: block !important;
-        background: #fff !important;
-      }
-      #printSection {
-        display: block !important;
-        position: static !important;
-        height: auto !important;
-        min-height: 0 !important;
-        overflow: visible !important;
-      }
+      html, body { height: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; display: block !important; background: #fff !important; }
+      #printSection { display: block !important; position: static !important; height: auto !important; min-height: 0 !important; overflow: visible !important; }
 
-      /* 구형 헤더는 완전히 숨김 처리 */
-      .print-running-header { display: none !important; }
+      /* 매 페이지 상단 반복 헤더 (2페이지부터 노출, 1페이지는 exam-header가 덮음) */
+      .print-running-header {
+          display: flex !important;
+          position: fixed !important;
+          top: 0 !important;
+          bottom: auto !important;
+          left: 0 !important;
+          right: 0 !important;
+          width: 100% !important;
+          height: 12mm !important;
+          opacity: 1 !important;
+          background: #ffffff !important;
+          justify-content: space-between !important;
+          align-items: center !important;
+          border-bottom: 1px solid #ccc !important;
+          z-index: 500 !important;
+          box-sizing: border-box !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+      }
 
       /* 매 페이지 최하단 학원 로고 고정 */
       .print-running-footer {
@@ -5257,23 +5240,33 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName){
           print-color-adjust: exact !important;
       }
 
-      /* 1페이지 메인 헤더 (상단 여백 중첩 방지) */
+      /* 1페이지 메인 헤더 */
       #printSection .exam-header {
-          position: relative !important;
+          position: absolute !important;
+          top: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
           width: 100% !important;
           margin-top: 0 !important;
-          margin-bottom: 16px !important;
+          margin-bottom: 0 !important;
+          padding-top: 0 !important;
           padding-bottom: 8px !important;
           background: #ffffff !important;
+          z-index: 1000 !important;
           border-bottom: 2px solid #000 !important;
           box-sizing: border-box !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
       }
 
+      /* 매 페이지 상단(18mm) 및 하단(12mm) 본문 여백 자동 확보 */
       .exam-body-wrap {
           display: block !important;
           width: 100% !important;
-          padding-top: 0 !important;
+          padding-top: 18mm !important;
           padding-bottom: 12mm !important;
+          -webkit-box-decoration-break: clone !important;
+          box-decoration-break: clone !important;
           box-sizing: border-box !important;
       }
 
@@ -5287,6 +5280,9 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName){
           break-inside: auto !important;
           display: block !important;
       }
+
+      .exam-q-block:last-child { margin-bottom: 0 !important; padding-bottom: 0 !important; border-bottom: none !important; }
+      .no-print-img-bug img { max-height: 10mm !important; }
 
       .exam-q-block { 
           position: relative !important;
@@ -5378,6 +5374,7 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName){
       }
     }
   `;
+  printZone.appendChild(printStyle);
 
   // 정답지 및 이미지 처리 로직 (기존과 동일)
   const answerBtn = document.getElementById('btnPrintAnswers');
