@@ -1492,14 +1492,12 @@ function toggleRecentAssignmentDetail(studentId, qidsStr, assignmentId, detailDi
 document.getElementById('btnPrintChecked').onclick = function() {
     const titleVal = document.getElementById('customTitleInput').value.trim();
 
-    // [기능 유지] 체크만 한 문항 강제 담기
     const uncheckedButSelected = document.querySelectorAll('#invTbody .inv-check:checked:not(:disabled)');
     uncheckedButSelected.forEach(cb => MAKER_CART.add(cb.value));
     updateCartUI();
 
     if(MAKER_CART.size === 0) { showCustomAlert('바구니에 담긴 문제가 없습니다.'); return; }
 
-    // [중복출제 대응] 대상 학생 리스트 확정
     let targetUsers = [];
     if (SELECTED_MULTI_STUDENTS && SELECTED_MULTI_STUDENTS.length > 0) {
         targetUsers = [...SELECTED_MULTI_STUDENTS];
@@ -1525,7 +1523,6 @@ document.getElementById('btnPrintChecked').onclick = function() {
         : `${targetUsers[0].name} 학생에게 과제를 출제하시겠습니까?`;
 
     showCustomConfirm(confirmMsg, function() {
-        // [지문 그룹 무작위 섞기 로직]
         const groups = {};
         const cartArray = Array.from(MAKER_CART);
         cartArray.forEach(qid => {
@@ -1534,12 +1531,11 @@ document.getElementById('btnPrintChecked').onclick = function() {
             if (!groups[gKey]) groups[gKey] = [];
             groups[gKey].push(qid);
         });
-        const inOrder = document.getElementById('chkInOrder') ? document.getElementById('chkInOrder').checked : false;
+        const inOrder = document.getElementById('chkInOrder') ? document.getElementById('chkInOrder'].checked : false;
         const cartOrder = document.getElementById('chkCartOrder') ? document.getElementById('chkCartOrder').checked : false;
         const groupKeys = Object.keys(groups);
 
         if (cartOrder) {
-            // MAKER_CART(바구니)에 담긴 순서(삽입 순서)를 기준으로 정렬
             const cartArray = Array.from(MAKER_CART);
             groupKeys.sort((a, b) => {
                 const qidA = groups[a][0];
@@ -1548,46 +1544,48 @@ document.getElementById('btnPrintChecked').onclick = function() {
             });
         } else if (inOrder) {
             groupKeys.sort((a, b) => {
-                // 각 그룹의 대표 문항 정보 가져오기
                 const rowA = INVENTORY_DATA.find(r => (r.groupHash || r.qid) === a);
                 const rowB = INVENTORY_DATA.find(r => (r.groupHash || r.qid) === b);
                 if (!rowA || !rowB) return 0;
-
-                // 1순위: 번호에서 숫자만 추출하여 비교 (예: "21_001" -> 21)
                 const numA = parseInt(String(rowA.number || '').replace(/[^0-9]/g, ''), 10) || 0;
                 const numB = parseInt(String(rowB.number || '').replace(/[^0-9]/g, ''), 10) || 0;
-                
                 if (numA !== numB) return numA - numB;
-
-                // 2순위: 번호 숫자가 같으면 연도/월/상세 순으로 정렬
                 const metaA = [rowA.year, rowA.month, rowA.number].join('');
                 const metaB = [rowB.year, rowB.month, rowB.number].join('');
                 return metaA.localeCompare(metaB);
             });
         } else {
-            // 번호순 미체크 시 기존처럼 랜덤 셔플
             groupKeys.sort(() => Math.random() - 0.5);
         }
         let qids = [];
         groupKeys.forEach(k => { qids = qids.concat(groups[k]); });
 
         const loadEl = document.getElementById('loadingOverlay');
-        if(loadEl) { loadEl.querySelector('.loading-text').innerText = '과제 생성 중...'; loadEl.classList.add('active'); }
+        if(loadEl) { loadEl.querySelector('.loading-text').innerText = '과제 생성 및 패키징 중...'; loadEl.classList.add('active'); }
 
-        // [서버 일괄 생성 호출]
+        // [방안 C 최적화] 서버 통신 1회(1-Trip)로 과제 생성과 인쇄용 데이터를 동시에 수신
+        const apiFunc = (targetUsers.length > 1) ? 'createBulkAssignments' : 'createAssignment';
+        const apiArgs = (targetUsers.length > 1) ? [targetUsers, customTitle, qids] : [targetUsers[0], customTitle, qids, false];
+
         google.script.run.withSuccessHandler(res => {
-            ADMIN_HISTORY_CACHE = []; // 새 과제 출제 시 배부기록 캐시 무효화
-            google.script.run.withSuccessHandler(realQs => {
-                if(loadEl) loadEl.classList.remove('active');
-                const primaryNameWithId = `${targetUsers[0].name}(${targetUsers[0].id})`;
-                const printStudentName = targetUsers.length > 1 ? primaryNameWithId + ' 외 ' + (targetUsers.length - 1) + '명' : primaryNameWithId;
-                renderQuestionsForPrint(realQs, customTitle, null, printStudentName);
-                SELECTED_MULTI_STUDENTS = []; updateStudentDisplayUI();
-            }).getQuestionsByQids(qids);
+            if(loadEl) loadEl.classList.remove('active');
+            if(res && res.error) {
+                showCustomAlert('출제 실패: ' + res.error);
+                return;
+            }
+            ADMIN_HISTORY_CACHE = []; // 배부기록 캐시 무효화
+            
+            const primaryNameWithId = `${targetUsers[0].name}(${targetUsers[0].id})`;
+            const printStudentName = targetUsers.length > 1 ? primaryNameWithId + ' 외 ' + (targetUsers.length - 1) + '명' : primaryNameWithId;
+            
+            // 서버에서 바로 넘어온 res.qs를 사용하므로 추가 통신 대기 시간이 0초가 됩니다.
+            renderQuestionsForPrint(res.qs, customTitle, null, printStudentName);
+            SELECTED_MULTI_STUDENTS = []; 
+            updateStudentDisplayUI();
         }).withFailureHandler(err => {
             if(loadEl) loadEl.classList.remove('active');
             showCustomAlert('출제 실패: ' + err);
-        }).createBulkAssignments(targetUsers, customTitle, qids); 
+        })[apiFunc].apply(null, apiArgs);
     });
 };
 
