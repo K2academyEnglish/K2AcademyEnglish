@@ -1105,27 +1105,36 @@ function closeQuestionMap(){
     if(o) o.style.display = 'none';
 }
 
-function loadMyAssignments(){
+let MY_ASSIGNMENTS_DATA_CACHE = null;
+
+function loadMyAssignments(isSilent = false){
   const listActive = document.getElementById('assignmentList');
   const listDone = document.getElementById('completedAssignmentList');
   
-  if(!listActive || !listDone) return;
+  if(!listActive || !listDone || !CURRENT_USER) return;
   
-  // 로딩 표시
+  // 1. 이미 받아둔 캐시가 있으면 로딩창 없이 0초 만에 즉시 렌더링
+  if (MY_ASSIGNMENTS_DATA_CACHE) {
+      renderAssignmentList(listActive, MY_ASSIGNMENTS_DATA_CACHE.active, false);
+      renderAssignmentList(listDone, MY_ASSIGNMENTS_DATA_CACHE.completed, true);
+      if (!isSilent) return; // 백그라운드 갱신 목적이 아니면 즉시 종료
+  }
+
+  // 2. 캐시가 없을 때만 화면 로딩 표시
   const loadEl = document.getElementById('loadingOverlay');
-  if(loadEl) {
+  if(!MY_ASSIGNMENTS_DATA_CACHE && !isSilent && loadEl) {
       loadEl.querySelector('.loading-text').innerHTML = '과제 보관함을 확인 중...';
       loadEl.classList.add('active');
   }
 
-  // ★ [최적화] 서버 통신 1회로 통합하여 미완료/완료 과제 동시 로드
   google.script.run.withSuccessHandler(res => {
       if(loadEl) loadEl.classList.remove('active');
-      renderAssignmentList(listActive, res.active, false); // 미완료 렌더링
-      renderAssignmentList(listDone, res.completed, true); // 완료 렌더링
+      MY_ASSIGNMENTS_DATA_CACHE = res || { active: [], completed: [] };
+      renderAssignmentList(listActive, MY_ASSIGNMENTS_DATA_CACHE.active, false);
+      renderAssignmentList(listDone, MY_ASSIGNMENTS_DATA_CACHE.completed, true);
   }).withFailureHandler(err => {
       if(loadEl) loadEl.classList.remove('active');
-      showCustomAlert('과제 목록 로드 실패: ' + err);
+      if (!isSilent) showCustomAlert('과제 목록 로드 실패: ' + err);
   }).getAllMyAssignments(CURRENT_USER);
 }
 
