@@ -366,6 +366,7 @@
             </div>
             <button id="btnLoadInventory" class="btn-primary" style="width:auto; padding:6px 12px; font-size:13px;">불러오기</button>
             <button onclick="openTypeStatsModal()" class="btn-ghost" style="width:auto; padding:6px 12px; font-size:13px; background:#fff; border:1px solid #7c3aed; color:#7c3aed;">통계</button>
+            <button id="btnToggleRecentAsgn" onclick="toggleRecentAssignmentsPanel()" class="btn-ghost" style="width:auto; padding:6px 12px; font-size:13px; background:#fff; border:1px solid #059669; color:#059669;">최근 과제</button>
             <button onclick="openStudentSelectModal()" class="btn-ghost" style="width:auto; padding:6px 12px; font-size:13px; background:#fff; border:1px solid #2b6cb0; color:#2b6cb0;">중복출제</button>
             <span id="multiActiveIndicator" style="display:none; color:#059669; font-weight:bold; font-size:13px; margin-left:8px;">중복출제 활성화</span>
         </div>
@@ -386,26 +387,42 @@
 
     <!-- [중단 스크롤] 목록 -->
     <div class="maker-body">
-    <!-- 1. 문제 목록 섹션 (기존 유지) -->
-    <div id="inventorySection" style="display:block;">
-        <table id="invTable" style="width:100%; border-collapse:collapse; font-size:12px;">
-            <thead>
-                <tr>
-                    <th style="padding:10px; width:40px; text-align:center; border-bottom:1px solid #ddd;"><input type="checkbox" id="invCheckAll"></th>
-                    <th onclick="sortInventory('status')" style="cursor:pointer; width:60px;">상태 <span id="sort_status"></span></th>
-                    <th onclick="sortInventory('lastTs')" style="cursor:pointer; width:90px;">최근 풀이 <span id="sort_lastTs"></span></th>
-                    <th onclick="sortInventory('assign')" style="cursor:pointer; width:50px;">배부 <span id="sort_assign"></span></th>
-                    <th onclick="sortInventory('wrong')" style="cursor:pointer; width:50px;">오답 <span id="sort_wrong"></span></th>
-                    <th onclick="sortInventory('source')" style="cursor:pointer;">출처/정보 <span id="sort_source"></span></th>
-                    <th onclick="sortInventory('type')" style="cursor:pointer; width:100px;">유형 <span id="sort_type"></span></th>
-                    <th onclick="sortInventory('difficulty')" style="cursor:pointer; width:50px;">난이도 <span id="sort_difficulty"></span></th>
-                    <th onclick="sortInventory('number')" style="cursor:pointer; width:80px;">번호 <span id="sort_number"></span></th>
-                </tr>
-            </thead>
-            <tbody id="invTbody">
-                <tr><td colspan="9" style="padding:40px; text-align:center; color:#999;">학생을 선택하고 [불러오기]를 눌러주세요.</td></tr>
-            </tbody>
-        </table>
+    <!-- 1. 문제 목록 섹션 (좌측 문제목록 + 우측 최근 과제 분할) -->
+    <div id="inventorySection" style="display:flex; height:100%; overflow:hidden;">
+        <div class="inv-table-wrap" style="flex:1; height:100%; overflow-y:auto; min-width:0;">
+            <table id="invTable" style="width:100%; border-collapse:collapse; font-size:12px;">
+                <thead>
+                    <tr>
+                        <th style="padding:10px; width:40px; text-align:center; border-bottom:1px solid #ddd;"><input type="checkbox" id="invCheckAll"></th>
+                        <th onclick="sortInventory('status')" style="cursor:pointer; width:60px;">상태 <span id="sort_status"></span></th>
+                        <th onclick="sortInventory('lastTs')" style="cursor:pointer; width:90px;">최근 풀이 <span id="sort_lastTs"></span></th>
+                        <th onclick="sortInventory('assign')" style="cursor:pointer; width:50px;">배부 <span id="sort_assign"></span></th>
+                        <th onclick="sortInventory('wrong')" style="cursor:pointer; width:50px;">오답 <span id="sort_wrong"></span></th>
+                        <th onclick="sortInventory('source')" style="cursor:pointer;">출처/정보 <span id="sort_source"></span></th>
+                        <th onclick="sortInventory('type')" style="cursor:pointer; width:100px;">유형 <span id="sort_type"></span></th>
+                        <th onclick="sortInventory('difficulty')" style="cursor:pointer; width:50px;">난이도 <span id="sort_difficulty"></span></th>
+                        <th onclick="sortInventory('number')" style="cursor:pointer; width:80px;">번호 <span id="sort_number"></span></th>
+                    </tr>
+                </thead>
+                <tbody id="invTbody">
+                    <tr><td colspan="9" style="padding:40px; text-align:center; color:#999;">학생을 선택하고 [불러오기]를 눌러주세요.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- [신규] 우측 최근 5회차 과제 사이드 패널 -->
+        <div id="recentAssignmentsPanel" class="recent-asgn-panel" style="display:none;">
+            <div class="recent-asgn-header">
+                <span id="recentAsgnTitle" style="font-weight:bold; font-size:14px; color:#065f46;">📋 최근 5회차 과제</span>
+                <div style="display:flex; gap:6px; align-items:center;">
+                    <button type="button" onclick="loadRecentAssignmentsForStudent(true)" style="width:auto; padding:4px 8px; font-size:11px; background:#fff; color:#059669; border:1px solid #059669; border-radius:4px; cursor:pointer;">새로고침</button>
+                    <button type="button" onclick="toggleRecentAssignmentsPanel(false)" style="width:auto; background:none; border:none; font-size:20px; color:#6b7280; cursor:pointer; padding:0 4px; line-height:1;">&times;</button>
+                </div>
+            </div>
+            <div id="recentAssignmentsBody" class="recent-asgn-body">
+                <div style="padding:30px; text-align:center; color:#6b7280; font-size:13px;">학생을 선택하고 불러오기를 진행해주세요.</div>
+            </div>
+        </div>
     </div>
 
     <!-- 2. [추가] 배부 기록 섹션 (여기가 없어서 사라졌던 것입니다) -->
