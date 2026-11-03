@@ -260,7 +260,7 @@ function switchAdminTab(mode) {
         if(sidebar) sidebar.style.display = 'block';
         if(makerHeader) makerHeader.style.display = 'flex';
         if(footer) footer.style.display = 'flex';
-        if(invSection) invSection.style.display = 'block';
+        if(invSection) invSection.style.display = 'flex';
         if(historySection) historySection.style.display = 'none';
         if(makerContent) {
             makerContent.style.display = 'flex';
