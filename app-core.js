@@ -564,12 +564,12 @@ on('btnShowMap', 'click', () => {
 
               // 주간평가 플래그(true)를 지원하는 createAssignment 함수 호출
               google.script.run.withSuccessHandler(res => {
-                  if(res && res.error) {
+                 if(res && res.error) {
                       if(loadEl) loadEl.classList.remove('active');
                       showCustomAlert('주간평가 저장 실패: ' + res.error);
                       return;
                   }
-                  gADMIN_HISTORY_CACHE = []; // 새 과제 출제 시 배부기록 캐시 무효화
+                  ADMIN_HISTORY_CACHE = []; // 새 과제 출제 시 배부기록 캐시 무효화
                   google.script.run.withSuccessHandler(realQs => {
                       if(loadEl) loadEl.classList.remove('active');
                       const printName = `${userObj.name}(${userObj.id})`;
