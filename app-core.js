@@ -341,6 +341,7 @@ function startQuizEntry(){
         } else {
             if(loadEl) loadEl.classList.remove('active');
             showPanel('studentMainPage');
+            if (typeof loadMyAssignments === 'function') loadMyAssignments(true); // 백그라운드 사전 로딩
         }
       })
       .withFailureHandler(err => {
