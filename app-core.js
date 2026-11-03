@@ -1,0 +1,715 @@
+/* ===================== 전역 상태 ===================== */
+let CONFUSING_WORDS_DB = [];
+let CURRENT_USER = null; // ★ 객체로 변경 {id, name, role, ...}
+let CURRENT_ASSIGNMENT_ID = '';
+let CURRENT_FILTERS = null;
+let CURRENT_SESSION = '';
+let DRAWER_DICT_ONLY = false;
+let FILTERS_LOADED = false; // ★ [추가] 필터 데이터 로딩 여부 체크
+let CURRENT_SLIDE_IDX = 0;
+let VOCAB_CACHE = null;
+let VOCAB_CURRENT_PAGE = 1;
+let MANAGED_STUDENTS = []; // ★ 담당 학생 목록 저장용
+let CURRENT_QUIZ_DATA = [];
+let ASGN_CACHE = {};
+let SELECTED_MULTI_STUDENTS = []; // [추가] 중복출제용 학생 리스트
+
+const selPrint = {grades:new Set(), years:new Set(), months:new Set(), types:new Set()};
+const selMaker = {grades:new Set(), years:new Set(), months:new Set(), types:new Set()};
+let MAKER_CURRENT_QS = [];
+const selState = {
+    'm1': { years: new Set(), months: new Set(), details: new Set() },
+    'm2': { years: new Set(), months: new Set(), details: new Set() },
+    'm3': { years: new Set(), months: new Set(), details: new Set() },
+    'h1': { years: new Set(), months: new Set(), details: new Set() },
+    'h2': { years: new Set(), months: new Set(), details: new Set() },
+    'h3': { years: new Set(), months: new Set(), details: new Set() },
+    'common': { types: new Set(), difficulties: new Set() }
+};
+
+/* ===================== 패널/탭 제어 ===================== */
+function showPanel(id){
+  // 1. 화면 패널들의 ID 명단
+  const panels = [
+    'startPage', 'studentMainPage', 'selectPage', 'quizPage', 'wrongPage', 'vocabPage', 
+    'printPage', 'assignmentPage',     'adminMakerPage', 'weeklyMakerPage'
+  ];
+  
+  // 2. 명단에 있는 모든 패널을 일단 숨깁니다.
+  panels.forEach(pid => {
+    const el = document.getElementById(pid);
+    if(el) el.classList.remove('active');
+  });
+
+  // 3. 선택된 패널만 보여줍니다.
+  const p = document.getElementById(id);
+  if(p) p.classList.add('active');
+
+  // 4. 부가 기능: 다른 탭으로 갈 때 우측 하단 단어장 버튼(FAB) 숨기기
+  setVocabFabVisible(false);
+
+  // 5. 퀴즈나 오답노트가 아니면 드로어(팝업) 닫기
+  if (!(id === 'quizPage' || id === 'wrongPage')) {
+    closeVocabDrawer();
+    closeQuestionMap();
+  }
+}
+
+function setTopTab(active){
+  const a=(id,on)=>{ const el=document.getElementById(id); if(!el) return; el.classList.toggle('active', on); };
+  a('topTabQuiz', active==='quiz');
+  a('topTabWrong', active==='wrong');
+  a('topTabVocab', active==='vocab');
+}
+function showHeader(){
+  const el = document.getElementById('globalHeader');
+  if (el) el.style.display = 'block';
+}
+function hideHeader(){
+  const el = document.getElementById('globalHeader');
+  if (el) el.style.display = 'none';
+}
+function showFooter(){
+  const el = document.getElementById('globalFooter');
+  if (el) el.style.display = 'flex';
+}
+function hideFooter(){
+  const el = document.getElementById('globalFooter');
+  if (el) el.style.display = 'none';
+}
+function showWarn(msg){
+  var w = document.getElementById('warning');
+  var sp = document.getElementById('startPage');
+  if (w && sp && sp.classList.contains('active')) {
+    w.style.display = 'block';
+    w.textContent = msg;
+  } else {
+    showCustomAlert(msg);
+  }
+}
+
+function refreshHeaderAuth(){
+  const logged = (CURRENT_USER && CURRENT_USER.id);
+  const isManager = (CURRENT_USER && CURRENT_USER.role === 'manager');
+
+  const mainTabs = document.getElementById('mainTabs');
+  const studentGroup = document.getElementById('studentTabGroup');
+  const adminGroup = document.getElementById('adminTabGroup');
+  
+  // 기본 정보 처리
+  const inp = document.getElementById('headerUsername');
+  const btnLogin = document.getElementById('btnHeaderLogin');
+  const badge = document.getElementById('userBadge');
+  const btnLogout = document.getElementById('btnGoStart');
+
+  if (inp) inp.style.display = logged ? 'none' : 'inline-block';
+  if (btnLogin) btnLogin.style.display = logged ? 'none' : 'inline-block';
+  if (badge) {
+    badge.style.display = logged ? 'inline-flex' : 'none';
+    if(logged) badge.textContent = `${CURRENT_USER.name} ${isManager ? '관리자' : '학생'}`;
+  }
+  if (btnLogout) btnLogout.style.display = logged ? 'inline-block' : 'none';
+
+  // [중요] 탭 그룹 노출 제어
+  if (mainTabs) {
+    mainTabs.style.display = logged ? 'flex' : 'none';
+    if (studentGroup) studentGroup.style.display = (logged && !isManager) ? 'flex' : 'none';
+    if (adminGroup) adminGroup.style.display = (logged && isManager) ? 'flex' : 'none';
+  }
+}
+
+function goStart(){
+  const btnMap = document.getElementById('btnShowMap');
+  if(btnMap) btnMap.style.display = 'none';
+  const btnVocab = document.getElementById('btnOpenVocab');
+  if(btnVocab) btnVocab.style.display = 'none';
+  
+  // [추가] 로그아웃 시 상단 메인 탭 메뉴 숨김 초기화
+  const mainTabs = document.getElementById('mainTabs');
+  if(mainTabs) mainTabs.style.display = 'none';
+
+  CURRENT_USER = '';
+  CURRENT_FILTERS = null;
+  CURRENT_SESSION = '';
+
+  CURRENT_USER = null;
+      CURRENT_FILTERS = null;
+      CURRENT_SESSION = '';
+
+      // [신규] 전역 메모리(학습 및 관리자 캐시) 완벽 초기화
+      CURRENT_QUIZ_DATA = [];
+      ASGN_CACHE = {};
+      WRONG_STATS = [];
+      if(typeof WRONG_SELECTED !== 'undefined') WRONG_SELECTED.clear();
+      VOCAB_CACHE = null;
+      MANAGED_STUDENTS = [];
+      INVENTORY_DATA = [];
+      ADMIN_HISTORY_CACHE = [];
+      if(typeof MAKER_CART !== 'undefined') MAKER_CART.clear();
+      SELECTED_MULTI_STUDENTS = [];
+
+      // [신규] 로그인 입력창 텍스트 지우기
+      const idInput = document.getElementById('userIdInput');
+      if(idInput) idInput.value = '';
+      const headerIdInput = document.getElementById('headerUsername');
+      if(headerIdInput) headerIdInput.value = '';
+
+  // ★ [추가] 로그아웃 시 History API 해시 초기화
+  localStorage.removeItem('k2_session');
+      
+   if(window.history && window.history.pushState) {
+      window.history.pushState(null, '', window.location.pathname);
+  }
+
+  showHeader();
+  hideFooter();
+  setTopTab('quiz');
+  showPanel('startPage');
+  ['drawerDictWord', 'drawerWord', 'drawerMeaning', 'drawerSearch'].forEach(id => {
+    const el = document.getElementById(id); 
+    if(el) el.value = ''; 
+  });
+  const dFrame = document.getElementById('drawerDictFrame');
+  if(dFrame) dFrame.src = 'about:blank';
+  const dList = document.getElementById('drawerList');
+  if(dList) dList.innerHTML = '';
+  const dStatus = document.getElementById('drawerSaveStatus');
+  if(dStatus) dStatus.textContent = '';
+
+  syncLoginUI();
+}
+
+/* ✅ 상단 탭 이동(어디서든) */
+function routeTo(mode, isPopState = false){
+  if(!CURRENT_USER) return;
+  CURRENT_ASSIGNMENT_ID = '';
+  CURRENT_SESSION = '';
+  hideFooter();
+  
+  if (!isPopState && window.history && window.history.pushState) {
+      window.history.pushState({ page: mode }, '', '#' + mode);
+  }
+  
+  // ★ 모든 상단 탭에서 파란색(active)을 먼저 싹 지워줌
+  document.querySelectorAll('.top-tab').forEach(t => t.classList.remove('active'));
+
+  if(mode === 'quiz') {
+    const tab = document.getElementById('topTabQuiz');
+    if(tab) tab.classList.add('active');
+    showPanel('selectPage');
+  } 
+  else if(mode === 'wrong') {
+    const tab = document.getElementById('topTabWrong');
+    if(tab) tab.classList.add('active');
+    showPanel('wrongPage');
+    loadWrongStats();
+  } 
+  else if(mode === 'vocab') {
+    const tab = document.getElementById('topTabVocab');
+    if(tab) tab.classList.add('active');
+    showPanel('vocabPage');
+    vocabLoadWordList();
+  } 
+  else if(mode === 'assignment') {
+    const tab = document.getElementById('topTabAssignment');
+    if(tab) tab.classList.add('active');
+    showPanel('assignmentPage');
+    loadMyAssignments();
+  }
+  // --- 관리자용 모드 ---
+  else if(mode === 'admin-create') {
+    const tab = document.getElementById('topTabAdminCreate');
+    if(tab) tab.classList.add('active');
+    showPanel('adminMakerPage');
+    switchAdminTab('create'); 
+  }
+  else if(mode === 'admin-history') {
+    const tab = document.getElementById('topTabAdminHistory');
+    if(tab) tab.classList.add('active');
+    showPanel('adminMakerPage');
+    switchAdminTab('history');
+  }
+  else if(mode === 'weekly') {
+    const tab = document.getElementById('topTabAdminWeekly');
+    if(tab) tab.classList.add('active');
+    showPanel('weeklyMakerPage');
+  }
+  else if(mode === 'admin-vocab') {
+    const tab = document.getElementById('topTabAdminVocab');
+    if(tab) tab.classList.add('active');
+    showPanel('vocabPage');
+    initAdminVocabMode();
+  }
+}
+
+/* ✅ 관리자 패널 내부 뷰 전환 (수정된 버전) */
+function switchAdminTab(mode) {
+    const sidebar = document.getElementById('adminFilterArea');
+    const makerHeader = document.querySelector('.maker-header');
+    const footer = document.getElementById('createFooter');
+    const invSection = document.getElementById('inventorySection');
+    const historySection = document.getElementById('adminHistoryView');
+    const makerContent = document.querySelector('.maker-content');
+
+    // 상단 탭 엘리먼트 (오류 방지를 위해 직접 참조)
+    const tabCreate = document.getElementById('topTabAdminCreate');
+    const tabHistory = document.getElementById('topTabAdminHistory');
+
+    if (mode === 'create') {
+        // [새 과제 출제 모드]
+        if(sidebar) sidebar.style.display = 'block';
+        if(makerHeader) makerHeader.style.display = 'flex';
+        if(footer) footer.style.display = 'flex';
+        if(invSection) invSection.style.display = 'block';
+        if(historySection) historySection.style.display = 'none';
+        if(makerContent) {
+            makerContent.style.display = 'flex';
+            makerContent.style.width = ''; // 기본값 복구
+        }
+        
+        // 탭 스타일 변경
+        if(tabCreate) tabCreate.classList.add('active');
+        if(tabHistory) tabHistory.classList.remove('active');
+        
+        renderInventoryTable();
+    } else {
+        // [배부 기록 모드]
+        if(sidebar) sidebar.style.display = 'none';
+        if(makerHeader) makerHeader.style.display = 'none';
+        if(footer) footer.style.display = 'none';
+        if(invSection) invSection.style.display = 'none';
+        
+        if(historySection) {
+            historySection.style.setProperty('display', 'flex', 'important');
+        }
+        if(makerContent) {
+            makerContent.style.display = 'flex';
+            makerContent.style.width = '100%'; // 사이드바가 없으므로 넓게 확장
+        }
+
+        // 탭 스타일 변경
+        if(tabCreate) tabCreate.classList.remove('active');
+        if(tabHistory) tabHistory.classList.add('active');
+        
+        // 이미 불러온 배부 기록 캐시가 있으면 서버 통신 없이 즉시 렌더링
+        if (ADMIN_HISTORY_CACHE && ADMIN_HISTORY_CACHE.length > 0) {
+            renderHistoryUI();
+        } else {
+            loadAdminHistory();
+        }
+    }
+}
+
+/* ===================== 시작 동작 ===================== */
+let SOURCE_FILTERS_CACHE = null; // 필터 메타데이터 캐시
+
+function startQuizEntry(){
+  const idInp = document.getElementById('headerUsername').value || document.getElementById('userIdInput').value;
+  const inputId = idInp.trim();
+  if(!inputId){ showCustomAlert('ID를 입력하세요.'); return; }
+
+  const loadEl = document.getElementById('loadingOverlay');
+  if(loadEl) {
+    loadEl.querySelector('.loading-text').innerHTML = '로그인 중...';
+    loadEl.classList.add('active');
+  }
+
+  if(hasGsRun()){
+    google.script.run
+      .withSuccessHandler(res => {
+        if(!res.success) {
+           if(loadEl) loadEl.classList.remove('active');
+           showCustomAlert('로그인 실패: ' + (res.error || '알 수 없는 오류'));
+           return;
+        }
+        CURRENT_USER = res; 
+        localStorage.setItem('k2_session', JSON.stringify({
+                user: res,
+                expiry: Date.now() + 600000
+            }));
+            
+            syncLoginUI();
+        document.getElementById('mainTabs').style.display = 'flex';
+
+        if(res.role === 'manager') {
+            google.script.run.withSuccessHandler(list => {
+                MANAGED_STUDENTS = list || [];
+                initAdminPage(); // 드롭다운 즉시 생성
+                if(loadEl) loadEl.classList.remove('active');
+                routeTo('admin-create'); // 로그인 후 바로 새 과제 탭으로 이동
+            }).getManagedStudents(res.id);
+        } else {
+            if(loadEl) loadEl.classList.remove('active');
+            showPanel('studentMainPage');
+        }
+      })
+      .withFailureHandler(err => {
+        if(loadEl) loadEl.classList.remove('active');
+        showCustomAlert('서버 오류: ' + err);
+      })
+      .doLogin(inputId);
+  }
+}
+
+// [수정된 관리자 페이지 초기화 함수 - 불필요한 초기 블로킹 통신 제거]
+function initAdminPage() {
+    // 1. 학생 선택 드롭다운 즉시 채우기
+    const selectEl = document.getElementById('targetStudentSelect');
+    const weeklySelect = document.getElementById('weeklyStudentSelect');
+    const optionsHtml = '<option value="">학생 선택</option>' + 
+            MANAGED_STUDENTS.map(s => `<option value="${s.id}">${s.name} (${s.id})</option>`).join('');
+    
+    if(selectEl) selectEl.innerHTML = optionsHtml;
+    if(weeklySelect) weeklySelect.innerHTML = optionsHtml;
+
+    // 2. 필터 메타데이터는 캐시가 없을 때만 백그라운드에서 1회 로드
+    if (!SOURCE_FILTERS_CACHE) {
+        google.script.run.withSuccessHandler(res => {
+            SOURCE_FILTERS_CACHE = res;
+            const weakBox = document.getElementById('weeklyWeakTypeChips');
+            if(weakBox && res && res.types && weakBox.children.length === 0) {
+                weakBox.innerHTML = '';
+                res.types.forEach(t => {
+                    const btn = document.createElement('button');
+                    btn.className = 'chip'; btn.textContent = t; btn.value = t;
+                    btn.style.width = 'auto'; btn.style.padding = '8px 12px';
+                    btn.onclick = function() { this.classList.toggle('selected'); };
+                    weakBox.appendChild(btn);
+                });
+            }
+        }).getSourceFiltersAndTypes();
+    }
+}
+
+/* ===================== 이벤트 바인딩 ===================== */
+function buildGradeTemplate(containerId, groupPrefix, pYear, pMonth, pDetail, tabFnName, isWeeklyMode) {
+  const container = document.getElementById(containerId);
+  if(!container) return;
+  const grades = [
+    { id: 'm1', name: '중1' }, { id: 'm2', name: '중2' }, { id: 'm3', name: '중3' },
+    { id: 'h1', name: '고1' }, { id: 'h2', name: '고2' }, { id: 'h3', name: '고3' }
+  ];
+  let html = '<div class="grade-tabs"';
+  if(containerId === 'weeklyFilterContainer') html += ' id="weeklyGradeTabs"';
+  if(containerId === 'studentFilterContainer') html += ' style="overflow-x:auto; white-space:nowrap; padding-bottom:4px;"';
+  html += '>';
+  grades.forEach((g, i) => html += `<div class="grade-tab ${i===0?'active':''}" onclick="${tabFnName}('${g.id}')">${g.name}</div>`);
+  html += '</div>';
+  
+  const gridStyle = isWeeklyMode ? ' style="grid-template-columns:repeat(3,1fr); gap:4px;"' : '';
+  grades.forEach((g, i) => {
+    html += `<div id="${groupPrefix}${g.id}" class="grade-panel ${i===0?'active':''}">
+               <div class="sub-label">${g.name} 년도</div><div id="${pYear}_${g.id}" class="chip-grid"${gridStyle}></div>
+               <div class="sub-label">${g.name} 월/교재</div><div id="${pMonth}_${g.id}" class="chip-grid"${gridStyle}></div>`;
+    if (pDetail) html += `<div class="sub-label">${g.name} 세부항목</div><div id="${pDetail}_${g.id}" class="chip-grid"${gridStyle}></div>`;
+    html += `</div>`;
+  });
+  container.innerHTML = html;
+}
+
+/* ===================== 이벤트 바인딩 ===================== */
+function initUI(){
+  // [신규] 중복 HTML 동적 생성
+  buildGradeTemplate('studentFilterContainer', 'gp_', 'yearChips', 'monthChips', 'detailChips', 'switchGradeTab', false);
+  buildGradeTemplate('adminInvFilterContainer', 'inv_gp_', 'invYearChips', 'invMonthChips', 'invDetailChips', 'switchInvGradeTab', false);
+  buildGradeTemplate('weeklyFilterContainer', 'wk_gp_', 'wkYearChips', 'wkMonthChips', null, 'switchWkGradeTab', true);
+
+  // ✅ 요소가 없어도 죽지 않게 안전 바인딩 헬퍼
+  const on = (id, evt, fn) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(evt, fn);
+  };
+
+  // 1. 핵심 버튼 기능 연결
+  on('btnStart', 'click', startQuizEntry);
+  on('userIdInput', 'keydown', (e)=>{ if(e.key === 'Enter') startQuizEntry(); });
+  
+  on('btnHeaderLogin', 'click', startQuizEntry);
+  on('headerUsername', 'keydown', (e)=>{ if(e.key === 'Enter') startQuizEntry(); });
+  on('btnGoStart', 'click', goStart);
+
+  // 2. 상단 탭 연결
+  on('topTabQuiz',  'click', ()=>routeTo('quiz'));
+  on('topTabWrong', 'click', ()=>routeTo('wrong'));
+  on('topTabVocab', 'click', ()=>routeTo('vocab'));
+  on('topTabAssignment', 'click', ()=>routeTo('assignment'));
+  on('topTabPrint', 'click', ()=>routeTo('print'));
+
+  // 3. 문제 풀기 화면 기능
+  on('btnStartWithOptions', 'click', startQuizWithOptions);
+  
+  // ▼▼▼ [선생님께서 말씀하신 다음/이전 버튼 연결 부분] ▼▼▼
+  on('btnPrevQ', 'click', prevSlide);
+  on('btnNextQ', 'click', nextSlide); // 이 코드가 실행되어야 버튼이 작동합니다.
+  on('btnGradeAll', 'click', gradeAll);
+
+  // 4. 문제 목록(맵) 기능
+on('btnShowMap', 'click', () => {
+    const d = document.getElementById('questionMapDrawer');
+    if (d && d.classList.contains('open')) {
+      closeQuestionMap(); // 이미 열려 있으면 닫기
+    } else {
+      openQuestionMap();  // 닫혀 있으면 열기
+    }
+  });
+  on('btnCloseMap', 'click', closeQuestionMap);
+
+  // 5. 단어장 관련 기능
+  on('newWord', 'input', (e) => vocabCheckDuplicateInput(e.target));
+  on('btnVocabSave', 'click', vocabSubmitWordToBoth);
+  on('btnDict', 'click', vocabSearchNaverDict);
+  on('dictToggleBtn', 'click', vocabToggleDict);
+  on('btnToggleVocabTest', 'click', vocabToggleTestMenu);
+  on('btnTestE2K', 'click', ()=>vocabStartInlineTest('engToKor'));
+  on('btnTestK2E', 'click', ()=>vocabStartInlineTest('korToEng'));
+  on('showListBtn', 'click', vocabShowWordList);
+
+  // 6. 단어장 팝업(Drawer) 기능
+  on('btnOpenVocab', 'click', openVocabDrawer);
+  on('btnVocabDrawerClose', 'click', closeVocabDrawer);
+  on('drawerOverlay', 'click', () => {
+    closeVocabDrawer();
+    closeQuestionMap();
+    closeNavDrawer();
+  });
+  on('drawerSearch', 'input', (e)=>drawerFilterList(e.target.value));
+  on('btnDrawerDict', 'click', ()=>{
+    var el = document.getElementById('drawerDictWord');
+    const w = (el && el.value) ? el.value : '';
+    drawerSearchDict(w);
+  });
+  on('drawerDictWord', 'keydown', function(e){
+    if (e.key === 'Enter') {
+      var el = document.getElementById('drawerDictWord');
+      var w = (el && el.value) ? el.value : '';
+      drawerSearchDict(w);
+    }
+  });
+  on('drawerWord', 'input', (e) => drawerCheckDuplicateInput(e.target));
+  on('btnDrawerSave', 'click', drawerSaveWord);
+
+
+  // 7. 상단바 스크롤 자동 숨김 기능
+  let _lastScrollY = 0;
+  let _headerAutoHideInit = false;
+  
+  if (!_headerAutoHideInit){
+    _headerAutoHideInit = true;
+    const header = document.getElementById('globalHeader');
+    if (header) {
+      _lastScrollY = window.scrollY || 0;
+      window.addEventListener('scroll', () => {
+        const y = window.scrollY || 0;
+        const diff = y - _lastScrollY;
+        if (Math.abs(diff) < 8) return;
+        if (diff > 0 && y > 80) header.classList.add('hide-on-scroll');
+        else header.classList.remove('hide-on-scroll');
+        _lastScrollY = y;
+      }, { passive: true });
+    }
+  }
+
+  // 8. [모의고사 모드] 체크 시 문제 개수 입력칸 막기
+  const chkMock = document.getElementById('mockExamMode');
+  const inpCount = document.getElementById('countInput');
+
+  if(chkMock && inpCount){
+    // (1) 처음 로딩될 때 체크 상태에 따라 바로 적용
+    if(chkMock.checked) {
+       inpCount.disabled = true;
+       inpCount.style.backgroundColor = '#e5e7eb';
+       inpCount.value = '';
+    }
+    // (2) 체크박스를 누를 때마다 적용
+    chkMock.addEventListener('change', function(){
+      if(this.checked){
+        inpCount.disabled = true;
+        inpCount.style.backgroundColor = '#e5e7eb';
+        inpCount.value = '';
+      } else {
+        inpCount.disabled = false;
+        inpCount.style.backgroundColor = '#fff';
+      }
+    });
+  }
+
+  // 주간평가 최종 사출 인쇄 단추 연결
+ const finalWkSubmit = document.getElementById('btnSubmitWeeklyFinal');
+  if(finalWkSubmit) {
+      finalWkSubmit.onclick = function() {
+          const titleVal = document.getElementById('weeklyTitleInput').value.trim();
+          const checkedBoxes = document.querySelectorAll('#weeklyInvTbody .wk-check:checked');
+          if(checkedBoxes.length === 0) { showCustomAlert('출제용 리스트에서 선택된 문항이 존재하지 않습니다.'); return; }
+
+          const selectEl = document.getElementById('weeklyStudentSelect');
+          const tId = selectEl.value;
+          if(!tId) { showCustomAlert('대상 학생을 설정해 주십시오.'); return; }
+          const found = MANAGED_STUDENTS.find(s => s.id === tId);
+          const userObj = { id: tId, name: found ? found.name : tId };
+
+          const qids = Array.from(checkedBoxes).map(cb => cb.value);
+          
+          // 프론트엔드 자체 주차 계산 (getWeekNumber_ 미정의 오류 방지)
+          const nowD = new Date();
+          const firstDay = new Date(nowD.getFullYear(), nowD.getMonth(), 1);
+          const weekStr = Math.ceil((nowD.getDate() + firstDay.getDay()) / 7) + '주차';
+          const customTitle = titleVal || `${userObj.name} 주간평가(Lv.${document.getElementById('weeklyLevelSlider').value}) - ${nowD.getMonth()+1}월 ${weekStr}`;
+
+          showCustomConfirm(`검토 완료된 ${qids.length}문항을 해당 학생의 주간평가로 정식 배포하고 인쇄용 시험지를 빌드하시겠습니까?`, function() {
+              const loadEl = document.getElementById('loadingOverlay');
+              if(loadEl) {
+                  loadEl.querySelector('.loading-text').innerHTML = `선택된 주간평가 세트 패키징 및 문제지 가공 중...`;
+                  loadEl.classList.add('active');
+              }
+
+              // 주간평가 플래그(true)를 지원하는 createAssignment 함수 호출
+              google.script.run.withSuccessHandler(res => {
+                  if(res && res.error) {
+                      if(loadEl) loadEl.classList.remove('active');
+                      showCustomAlert('주간평가 저장 실패: ' + res.error);
+                      return;
+                  }
+                  gADMIN_HISTORY_CACHE = []; // 새 과제 출제 시 배부기록 캐시 무효화
+                  google.script.run.withSuccessHandler(realQs => {
+                      if(loadEl) loadEl.classList.remove('active');
+                      const printName = `${userObj.name}(${userObj.id})`;
+                      renderQuestionsForPrint(realQs, customTitle, null, printName);
+                      document.getElementById('weeklyTitleInput').value = '';
+                  }).withFailureHandler(err => {
+                      if(loadEl) loadEl.classList.remove('active');
+                      showCustomAlert('문항 로드 실패: ' + err);
+                  }).getQuestionsByQids(qids);
+              }).withFailureHandler(err => {
+                  if(loadEl) loadEl.classList.remove('active');
+                  showCustomAlert('주간평가 저장 실패: ' + err);
+              }).createAssignment(userObj, customTitle, qids, true);
+          });
+      };
+  }
+
+  // 주간평가 메뉴 진입 시 데이터 자동 맵핑 트리거 바인딩
+  const weeklyTabMenu = document.getElementById('topTabAdminWeekly');
+  if (weeklyTabMenu) {
+      weeklyTabMenu.addEventListener('click', function() {
+          document.querySelectorAll('.top-tab').forEach(t => t.classList.remove('active'));
+          this.classList.add('active');
+          showPanel('weeklyMakerPage');
+          hideFooter();
+          
+          // 드롭다운 및 테이블 초기화 안내 상태 동기화
+          const selectEl = document.getElementById('weeklyStudentSelect');
+          if(selectEl && selectEl.value === "") {
+              document.getElementById('weeklyInvTbody').innerHTML = `<tr><td colspan="7" style="padding:40px; text-align:center; color:#999;">학생을 선택하고 [학생 데이터 및 필터 로드]를 진행한 뒤 자동 추출을 실행해주세요.</td></tr>`;
+              document.getElementById('weeklyWeakTypeChips').innerHTML = '';
+              document.getElementById('weeklyAnalysisStatus').innerText = '학생을 선택하고 버튼을 눌러주세요.';
+              updateWkCount();
+          }
+      });
+  }
+
+// [신규] 앱 초기화 시 자동 로그인(Auto-Login) 낚아채기
+  const savedSessionStr = localStorage.getItem('k2_session');
+  let autoLoginSuccess = false;
+  
+  if (savedSessionStr) {
+      try {
+          const session = JSON.parse(savedSessionStr);
+          if (Date.now() < session.expiry) {
+              // 10분이 지나지 않았다면 타이머를 다시 10분으로 연장 및 계정 복구
+              session.expiry = Date.now() + 600000;
+              localStorage.setItem('k2_session', JSON.stringify(session));
+              
+              CURRENT_USER = session.user;
+              syncLoginUI();
+              const mainTabs = document.getElementById('mainTabs');
+              if (mainTabs) mainTabs.style.display = 'flex';
+              
+              if (CURRENT_USER.role === 'manager') {
+                  google.script.run.withSuccessHandler(list => {
+                      MANAGED_STUDENTS = list || [];
+                      initAdminPage();
+                      // 초기 진입 시에만 관리자 화면으로 즉시 이동
+                      if (!window.location.hash || window.location.hash === '#startPage') {
+                          routeTo('admin-create');
+                      }
+                  }).getManagedStudents(CURRENT_USER.id);
+              } else {
+                  if (!window.location.hash || window.location.hash === '#startPage') {
+                      showPanel('studentMainPage');
+                  }
+              }
+              autoLoginSuccess = true;
+          } else {
+              localStorage.removeItem('k2_session'); // 10분 초과 시 파기
+          }
+      } catch(e) {}
+  }
+
+  // 세션이 없거나 만료된 경우에만 로그인 화면으로 쫓아냄
+  if (!autoLoginSuccess) {
+      goStart();
+  }
+
+  bindInventoryEvents();
+
+  on('btnMobileMenu', 'click', openNavDrawer);
+  on('btnCloseNav', 'click', closeNavDrawer);
+
+  // ★ [추가] 모바일 뒤로가기 제스처(popstate) 감지 및 라우팅 복원
+  window.addEventListener('popstate', function(event) {
+    if (!CURRENT_USER) return; 
+    
+    // 브라우저 뒤로가기 시 상태를 읽고 화면 복원
+    if (event.state && event.state.page) {
+        if (event.state.page === 'main') {
+            showPanel('studentMainPage');
+            document.querySelectorAll('.top-tab').forEach(t => t.classList.remove('active'));
+            hideFooter();
+        } else {
+            routeTo(event.state.page, true); // true = isPopState 플래그 전달 (중복 기록 방지)
+        }
+    } else {
+        // state가 없는 경우 (초기 진입 화면)
+        showPanel('studentMainPage');
+        document.querySelectorAll('.top-tab').forEach(t => t.classList.remove('active'));
+        hideFooter();
+    }
+  });
+} // <--- initUI 함수 끝
+
+// [수정] 앱 초기화 로직: 초기 진입 시 불필요한 getConfusingWordsFromSheet 호출 제거 (지연 로딩 적용)
+function initApp() {
+    if(typeof google !== 'undefined' && google.script && google.script.url) {
+        google.script.url.getLocation(function(location) {
+            if (location.parameters && location.parameters.report) {
+                // [공유 모드] 로그인 창 및 헤더를 숨기고 곧바로 리포트만 렌더링
+                document.getElementById('globalHeader').style.display = 'none';
+                document.getElementById('startPage').classList.remove('active');
+                const reportId = location.parameters.report[0];
+                openWeeklyReport(reportId, true); 
+            } else {
+                // [일반 모드] 정상적인 로그인 화면 표시
+                initUI(); 
+            }
+        });
+    } else {
+        initUI();
+    }
+}
+
+// DOMContentLoaded가 이미 지난 경우까지 커버
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initApp);
+} else {
+  initApp();
+}
+
+// ✅ 전역 노출(동적 HTML의 inline handler 대비)
+window.startQuizEntry = startQuizEntry;
+window.vocabGrade = vocabGrade;
+window.switchWkGradeTab = switchWkGradeTab;
+
+// [추가] 전역 노출
+window.switchAdminTab = switchAdminTab;
+window.loadAdminHistory = loadAdminHistory;
+window.switchWkGradeTab = switchWkGradeTab;
