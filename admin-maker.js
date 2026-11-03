@@ -1489,8 +1489,10 @@ function toggleRecentAssignmentDetail(studentId, qidsStr, assignmentId, detailDi
 }
 
 // 2. 통합 출제 버튼 핸들러 (교체)
-document.getElementById('btnPrintChecked').onclick = function() {
-    const titleVal = document.getElementById('customTitleInput').value.trim();
+const btnPrintChecked = document.getElementById('btnPrintChecked');
+if (btnPrintChecked) {
+  btnPrintChecked.onclick = function() {
+    const titleVal = document.getElementById('customTitleInput') ? document.getElementById('customTitleInput').value.trim() : '';
 
     const uncheckedButSelected = document.querySelectorAll('#invTbody .inv-check:checked:not(:disabled)');
     uncheckedButSelected.forEach(cb => MAKER_CART.add(cb.value));
@@ -2085,3 +2087,16 @@ function runWeeklyAutoSelection() {
     updateWkCount();
     showCustomAlert(`🎯 지정 범위 내부 풀에서 조건(난이도 분포 및 오답률 높은 유형)에 맞춰 20문항이 엄선 및 자동 체크되었습니다.\n테이블을 확인하며 문항을 최종 조율해 주십시오.`);
 }
+// [추가] 배부 기록 조회 버튼 자동 바인딩
+document.addEventListener('DOMContentLoaded', function() {
+  const btnHistorySearch = document.getElementById('btnSearchHistory') || document.getElementById('btnLoadHistory');
+  if (btnHistorySearch) {
+    btnHistorySearch.onclick = loadAdminHistory;
+  }
+  
+  // 인벤토리 불러오기 버튼도 안전하게 바인딩
+  const btnLoadInv = document.getElementById('btnLoadInventory');
+  if (btnLoadInv) {
+    btnLoadInv.onclick = loadInventoryData;
+  }
+});
