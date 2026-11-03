@@ -1533,7 +1533,7 @@ if (btnPrintChecked) {
             if (!groups[gKey]) groups[gKey] = [];
             groups[gKey].push(qid);
         });
-        const inOrder = document.getElementById('chkInOrder') ? document.getElementById('chkInOrder'].checked : false;
+        const inOrder = document.getElementById('chkInOrder') ? document.getElementById('chkInOrder').checked : false;
         const cartOrder = document.getElementById('chkCartOrder') ? document.getElementById('chkCartOrder').checked : false;
         const groupKeys = Object.keys(groups);
 
