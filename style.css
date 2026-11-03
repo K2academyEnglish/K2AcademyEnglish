@@ -652,7 +652,65 @@
   background: #fff; display: flex; flex-direction: column; gap: 10px;
 }
 .header-row { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
-.maker-body { flex: 1; overflow-y: auto; padding: 0; }
+.maker-body { flex: 1; overflow: hidden; padding: 0; display: flex; flex-direction: column; }
+#adminHistoryView { flex: 1; overflow-y: auto; }
+
+/* [신규] 우측 최근 5회차 과제 패널 및 아코디언 결과창 스타일 */
+.recent-asgn-panel {
+  width: 520px;
+  min-width: 460px;
+  max-width: 50%;
+  height: 100%;
+  border-left: 2px solid #059669;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+.recent-asgn-header {
+  padding: 10px 14px;
+  background: #ecfdf5;
+  border-bottom: 1px solid #a7f3d0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+.recent-asgn-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.recent-asgn-item {
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  flex-shrink: 0;
+}
+.recent-asgn-summary {
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.15s;
+}
+.recent-asgn-summary:hover {
+  background: #f0fdf4;
+}
+.recent-asgn-detail {
+  display: none;
+  border-top: 1px solid #e5e7eb;
+  background: #ffffff;
+  padding: 8px;
+  overflow-x: auto;
+}
 .maker-footer {
   flex: 0 0 auto; padding: 15px 20px; border-top: 2px solid #2b6cb0;
   background: #f3f4f6; z-index: 20;
