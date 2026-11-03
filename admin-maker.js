@@ -381,7 +381,11 @@ function loadInventoryData() {
     document.getElementById('inventorySection').style.display = 'flex';
     initInventoryFilters();
     renderInventoryTable();
-
+    const recentPanel = document.getElementById('recentAssignmentsPanel');
+    if (recentPanel && recentPanel.style.display !== 'none') {
+        loadRecentAssignmentsForStudent(false);
+    }
+      
   }).withFailureHandler(err => {
     if(loadEl) loadEl.classList.remove('active');
     showCustomAlert('오류 발생: ' + err);
@@ -1238,6 +1242,251 @@ function closeAdminDetail() {
   document.getElementById('adminDetailModal').style.display = 'none';
 }
 
+// [신규] 우측 최근 5회차 과제 패널 열기/닫기 제어
+function toggleRecentAssignmentsPanel(forceState) {
+  const panel = document.getElementById('recentAssignmentsPanel');
+  const btn = document.getElementById('btnToggleRecentAsgn');
+  if (!panel) return;
+
+  const selectEl = document.getElementById('targetStudentSelect');
+  const inputEl = document.getElementById('targetStudentName');
+  const studentId = selectEl ? selectEl.value : (inputEl ? inputEl.value : '');
+
+  const isCurrentlyOpen = (panel.style.display !== 'none');
+  const nextState = (typeof forceState === 'boolean') ? forceState : !isCurrentlyOpen;
+
+  if (nextState) {
+    if (!studentId) {
+      showCustomAlert('최근 과제를 확인할 학생을 먼저 선택해주세요.');
+      return;
+    }
+    panel.style.display = 'flex';
+    if (btn) {
+      btn.style.background = '#059669';
+      btn.style.color = '#fff';
+    }
+    loadRecentAssignmentsForStudent(false);
+  } else {
+    panel.style.display = 'none';
+    if (btn) {
+      btn.style.background = '#fff';
+      btn.style.color = '#059669';
+    }
+  }
+}
+
+// [신규] 선택된 학생의 최근 5회차 과제 목록 로드 및 렌더링
+function loadRecentAssignmentsForStudent(forceReload) {
+  const selectEl = document.getElementById('targetStudentSelect');
+  const inputEl = document.getElementById('targetStudentName');
+  const studentId = selectEl ? selectEl.value : (inputEl ? inputEl.value : '');
+  const body = document.getElementById('recentAssignmentsBody');
+  const titleEl = document.getElementById('recentAsgnTitle');
+
+  if (!body) return;
+  if (!studentId) {
+    body.innerHTML = '<div style="padding:30px; text-align:center; color:#6b7280; font-size:13px;">학생을 먼저 선택해주세요.</div>';
+    return;
+  }
+
+  let studentName = studentId;
+  if (MANAGED_STUDENTS && Array.isArray(MANAGED_STUDENTS)) {
+    const found = MANAGED_STUDENTS.find(s => s.id === studentId);
+    if (found) studentName = found.name;
+  }
+  if (titleEl) titleEl.innerText = `📋 ${studentName} - 최근 5회차 과제`;
+
+  const renderRecentList = () => {
+    const matched = (ADMIN_HISTORY_CACHE || []).filter(r => {
+      if (r.studentId && String(r.studentId) === String(studentId)) return true;
+      return String(r.student || '').trim() === String(studentName).trim();
+    }).slice(0, 5);
+
+    if (matched.length === 0) {
+      body.innerHTML = `<div style="padding:30px; text-align:center; color:#6b7280; font-size:13px;">${studentName} 학생의 최근 배부 기록이 없습니다.</div>`;
+      return;
+    }
+
+    body.innerHTML = '';
+    const fragment = document.createDocumentFragment();
+
+    matched.forEach((row, idx) => {
+      const itemDiv = document.createElement('div');
+      itemDiv.className = 'recent-asgn-item';
+
+      let statusText = '';
+      let statusColor = '#374151';
+      if (row.displayStatus === '미완료') {
+        statusText = `미완료(0/${row.totalCount})`;
+        statusColor = '#dc2626';
+      } else if (row.displayStatus === '진행 중') {
+        statusText = `진행 중(${row.answeredCount}/${row.totalCount})`;
+        statusColor = '#d97706';
+      } else {
+        statusText = `완료(${row.strictCorrectCount}/${row.totalCount})`;
+        statusColor = '#059669';
+      }
+
+      const summaryDiv = document.createElement('div');
+      summaryDiv.className = 'recent-asgn-summary';
+      summaryDiv.innerHTML = `
+        <div style="min-width:0; flex:1;">
+          <div style="font-size:11px; color:#6b7280; margin-bottom:2px;">
+            <span style="font-weight:bold; color:#059669; margin-right:4px;">#${idx + 1}</span>${row.date || ''} | ${row.totalCount}문항
+          </div>
+          <div style="font-size:13px; font-weight:bold; color:#111827; word-break:break-all; line-height:1.35;">
+            ${sanitizeInlineHTML(row.title)}
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+          <span style="font-size:12px; font-weight:bold; color:${statusColor};">${statusText}</span>
+          <span class="recent-toggle-icon" style="font-size:11px; color:#6b7280;">▼</span>
+        </div>
+      `;
+
+      const detailDiv = document.createElement('div');
+      detailDiv.className = 'recent-asgn-detail';
+
+      summaryDiv.onclick = () => {
+        toggleRecentAssignmentDetail(row.studentId || studentId, row.qids, row.id, detailDiv, summaryDiv);
+      };
+
+      itemDiv.appendChild(summaryDiv);
+      itemDiv.appendChild(detailDiv);
+      fragment.appendChild(itemDiv);
+    });
+
+    body.appendChild(fragment);
+  };
+
+  if (!forceReload && ADMIN_HISTORY_CACHE && ADMIN_HISTORY_CACHE.length > 0) {
+    renderRecentList();
+    return;
+  }
+
+  body.innerHTML = '<div style="padding:30px; text-align:center; color:#059669; font-weight:bold; font-size:13px;">⏳ 최근 과제 목록을 불러오는 중...</div>';
+
+  google.script.run.withSuccessHandler(list => {
+    ADMIN_HISTORY_CACHE = list || [];
+    renderRecentList();
+  }).withFailureHandler(err => {
+    body.innerHTML = `<div style="padding:20px; text-align:center; color:#dc2626; font-size:13px;">로드 실패: ${err}</div>`;
+  }).getAllAssignmentsForAdmin('', false);
+}
+
+// [신규] 최근 과제 클릭 시 바로 아래에 배부기록 결과창(아코디언) 펼치기/접기
+function toggleRecentAssignmentDetail(studentId, qidsStr, assignmentId, detailDiv, summaryDiv) {
+  const iconEl = summaryDiv ? summaryDiv.querySelector('.recent-toggle-icon') : null;
+  const isOpen = (detailDiv.style.display === 'block');
+
+  if (isOpen) {
+    detailDiv.style.display = 'none';
+    if (iconEl) iconEl.innerText = '▼';
+    return;
+  }
+
+  detailDiv.style.display = 'block';
+  if (iconEl) iconEl.innerText = '▲';
+
+  // 이미 한 번 불러온 결과 표가 있으면 재통신 없이 즉시 노출
+  if (detailDiv.getAttribute('data-loaded') === 'true') {
+    return;
+  }
+
+  let qids = [];
+  try {
+    qids = typeof qidsStr === 'string' ? JSON.parse(qidsStr) : qidsStr;
+  } catch (e) {
+    detailDiv.innerHTML = '<div style="color:#dc2626; padding:10px; font-size:12px;">문항 목록 데이터 오류</div>';
+    return;
+  }
+
+  if (!studentId || studentId === 'undefined') {
+    detailDiv.innerHTML = '<div style="color:#dc2626; padding:10px; font-size:12px;">오류: 학생 ID를 찾을 수 없습니다.</div>';
+    return;
+  }
+
+  detailDiv.innerHTML = '<div style="text-align:center; padding:16px; color:#6b7280; font-size:12px;">⏳ 상세 결과를 분석 중입니다...</div>';
+
+  const formatAns = (val) => {
+    if (!val || val === '-' || val.trim() === '') return val;
+    let processed = val
+      .replace(/<red>/gi, '<span class="txt-red">').replace(/<\/red>/gi, '</span>')
+      .replace(/<blue>/gi, '<span class="txt-blue">').replace(/<\/blue>/gi, '</span>')
+      .replace(/<green>/gi, '<span class="txt-green">').replace(/<\/green>/gi, '</span>')
+      .replace(/<orange>/gi, '<span class="txt-orange">').replace(/<\/orange>/gi, '</span>');
+    if (!processed.includes('||')) return processed;
+    const labels = ['(A)', '(B)', '(C)', '(D)', '(E)'];
+    return processed.split('||').map((v, i) => `<div style="white-space:nowrap;"><b>${labels[i] || `(${i+1})`}</b> ${v.trim()}</div>`).join('');
+  };
+
+  google.script.run
+    .withSuccessHandler(res => {
+      const qs = res.qs || [];
+      const history = res.history || {};
+
+      let html = `
+        <table style="width:100%; border-collapse:collapse; font-size:11.5px; table-layout:fixed;">
+          <thead style="background:#f3f4f6;">
+            <tr>
+              <th style="padding:5px 2px; border:1px solid #ddd; width:30px;">번호</th>
+              <th style="padding:5px 4px; border:1px solid #ddd; width:68px;">유형</th>
+              <th style="padding:5px 4px; border:1px solid #ddd; width:95px;">문제ID</th>
+              <th style="padding:5px 2px; border:1px solid #ddd; width:34px;">난이도</th>
+              <th style="padding:5px 4px; border:1px solid #ddd;">정답</th>
+              <th style="padding:5px 4px; border:1px solid #ddd;">학생답</th>
+              <th style="padding:5px 2px; border:1px solid #ddd; width:36px;">결과</th>
+              <th style="padding:5px 2px; border:1px solid #ddd; width:38px;">오답</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+      qs.forEach((q, idx) => {
+        const record = history[q.qid];
+        const correctAns = String(q.answer || '-').trim();
+        const selected = record ? (record.selected || '-') : '-';
+
+        const displayCorrect = formatAns(correctAns);
+        const displaySelected = formatAns(selected);
+
+        let resultTxt = '미제출';
+        let rowBg = '#fff';
+        let textColor = '#374151';
+
+        if (record && !record.empty) {
+          if (record.isCorrect === true) {
+            resultTxt = record.wasWrong ? '△' : 'O';
+            rowBg = record.wasWrong ? '#fef9c3' : '#ecfdf5';
+            textColor = record.wasWrong ? '#ca8a04' : '#059669';
+          } else {
+            resultTxt = 'X';
+            rowBg = '#fef2f2';
+            textColor = '#dc2626';
+          }
+        }
+
+        html += `
+          <tr style="background:${rowBg};">
+            <td style="padding:5px 2px; border:1px solid #ddd; text-align:center;">${idx + 1}</td>
+            <td style="padding:5px 4px; border:1px solid #ddd; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${q.type || '-'}</td>
+            <td style="padding:5px 4px; border:1px solid #ddd; font-size:10.5px; word-break:break-all;">${q.extId || q.qid || '-'}</td>
+            <td style="padding:5px 2px; border:1px solid #ddd; text-align:center; font-weight:bold;">${q.difficulty || '-'}</td>
+            <td style="padding:5px 4px; border:1px solid #ddd; color:#2b6cb0; word-break:break-all;">${displayCorrect}</td>
+            <td style="padding:5px 4px; border:1px solid #ddd; word-break:break-all;">${displaySelected}</td>
+            <td style="padding:5px 2px; border:1px solid #ddd; text-align:center; font-weight:bold; color:${textColor};">${resultTxt}</td>
+            <td style="padding:5px 2px; border:1px solid #ddd; text-align:center;">${record?.wrongCount || 0}회</td>
+          </tr>`;
+      });
+
+      html += '</tbody></table>';
+      detailDiv.innerHTML = html;
+      detailDiv.setAttribute('data-loaded', 'true');
+    })
+    .withFailureHandler(err => {
+      detailDiv.innerHTML = `<div style="color:#dc2626; padding:10px; font-size:12px;">서버 오류: ${err}</div>`;
+    })
+    .loadRetryData(studentId, qids, assignmentId);
+}
 
 // 2. 통합 출제 버튼 핸들러 (교체)
 document.getElementById('btnPrintChecked').onclick = function() {
