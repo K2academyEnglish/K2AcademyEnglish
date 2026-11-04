@@ -323,7 +323,10 @@ const invSelState = {
 };
 
 // 1. 문제 목록 불러오기 (서버 호출)
+let INVENTORY_REQUEST_SEQUENCE = 0;
 function loadInventoryData() {
+  const requestSequence = ++INVENTORY_REQUEST_SEQUENCE;
+  const requestUser = CURRENT_USER;
   // ★ [수정] 드롭다운(Select)과 입력창(Input) 둘 다 확인
   const selectEl = document.getElementById('targetStudentSelect');
   const inputEl = document.getElementById('targetStudentName');
@@ -372,6 +375,7 @@ function loadInventoryData() {
   }
 
   google.script.run.withSuccessHandler(data => {
+    if (requestSequence !== INVENTORY_REQUEST_SEQUENCE || CURRENT_USER !== requestUser || (selectEl && selectEl.value !== val)) return;
     if(loadEl) loadEl.classList.remove('active');
     
     INVENTORY_DATA = (data || []).filter(q => q && q.qid);
@@ -387,6 +391,7 @@ function loadInventoryData() {
     }
       
   }).withFailureHandler(err => {
+    if (requestSequence !== INVENTORY_REQUEST_SEQUENCE || CURRENT_USER !== requestUser) return;
     if(loadEl) loadEl.classList.remove('active');
     showCustomAlert('오류 발생: ' + err);
   }).getAdminQuestionInventory(val); // ★ 이름 대신 ID(또는 값) 전달
@@ -1276,7 +1281,11 @@ function toggleRecentAssignmentsPanel(forceState) {
 }
 
 // [신규] 선택된 학생의 최근 5회차 과제 목록 로드 및 렌더링
+let RECENT_STUDENT_REQUEST_SEQUENCE = 0;
 function loadRecentAssignmentsForStudent(forceReload) {
+  const requestSequence = ++RECENT_STUDENT_REQUEST_SEQUENCE;
+  const requestUser = CURRENT_USER;
+  let recentRows = [];
   const selectEl = document.getElementById('targetStudentSelect');
   const inputEl = document.getElementById('targetStudentName');
   const studentId = selectEl ? selectEl.value : (inputEl ? inputEl.value : '');
@@ -1297,7 +1306,7 @@ function loadRecentAssignmentsForStudent(forceReload) {
   if (titleEl) titleEl.innerText = `📋 ${studentName} - 최근 5회차 과제`;
 
   const renderRecentList = () => {
-    const matched = (ADMIN_HISTORY_CACHE || []).filter(r => {
+    const matched = (recentRows || []).filter(r => {
       if (r.studentId && String(r.studentId) === String(studentId)) return true;
       return String(r.student || '').trim() === String(studentName).trim();
     }).slice(0, 5);
@@ -1359,19 +1368,16 @@ function loadRecentAssignmentsForStudent(forceReload) {
     body.appendChild(fragment);
   };
 
-  if (!forceReload && ADMIN_HISTORY_CACHE && ADMIN_HISTORY_CACHE.length > 0) {
-    renderRecentList();
-    return;
-  }
-
   body.innerHTML = '<div style="padding:30px; text-align:center; color:#059669; font-weight:bold; font-size:13px;">⏳ 최근 과제 목록을 불러오는 중...</div>';
 
   google.script.run.withSuccessHandler(list => {
-    ADMIN_HISTORY_CACHE = list || [];
+    if (requestSequence !== RECENT_STUDENT_REQUEST_SEQUENCE || CURRENT_USER !== requestUser || (selectEl && selectEl.value !== studentId)) return;
+    recentRows = list || [];
     renderRecentList();
   }).withFailureHandler(err => {
+    if (requestSequence !== RECENT_STUDENT_REQUEST_SEQUENCE || CURRENT_USER !== requestUser) return;
     body.innerHTML = `<div style="padding:20px; text-align:center; color:#dc2626; font-size:13px;">로드 실패: ${err}</div>`;
-  }).getAllAssignmentsForAdmin('', false);
+  }).getRecentAssignmentsForStudent({id: studentId, name: studentName}, 5);
 }
 
 // [신규] 최근 과제 클릭 시 바로 아래에 배부기록 결과창(아코디언) 펼치기/접기
