@@ -110,6 +110,8 @@ function addSelectedToCart() {
     }
     selectedCB.forEach(cb => MAKER_CART.add(cb.value));
     updateCartUI();
+    const cartPanel = document.getElementById('cartListPanel');
+    if (cartPanel && cartPanel.classList.contains('open')) renderCartTable();
     renderInventoryTable(); // 담긴 것은 비활성화 처리하기 위해 다시 그림
     showCustomAlert(`${selectedCB.length}개의 문제가 바구니에 추가되었습니다.\n(현재 총 ${MAKER_CART.size}개)`);
 }
