@@ -29,6 +29,8 @@ const selState = {
 
 /* ===================== 패널/탭 제어 ===================== */
 function showPanel(id){
+  const nextPanel = document.getElementById(id);
+  const pageChanged = nextPanel && !nextPanel.classList.contains('active');
   // 1. 화면 패널들의 ID 명단
   const panels = [
     'startPage', 'studentMainPage', 'selectPage', 'quizPage', 'wrongPage', 'vocabPage', 
@@ -44,6 +46,11 @@ function showPanel(id){
   // 3. 선택된 패널만 보여줍니다.
   const p = document.getElementById(id);
   if(p) p.classList.add('active');
+  if (pageChanged) {
+    window.scrollTo(0, 0);
+    const header = document.getElementById('globalHeader');
+    if (header) header.classList.remove('hide-on-scroll');
+  }
 
   // 4. 부가 기능: 다른 탭으로 갈 때 우측 하단 단어장 버튼(FAB) 숨기기
   setVocabFabVisible(false);
