@@ -930,3 +930,191 @@
     .popup-btn.full { width: 100%; }
     .popup-close-btn { position: absolute; top: 8px; right: 8px; background: none; border: none; font-size: 24px; cursor: pointer; color: #6b7280; line-height: 1; padding: 4px; }
     .popup-img-content { max-width: 100%; max-height: 75vh; object-fit: contain; border-radius: 8px; margin-top: 8px; }
+
+/* ===================== 모드별 전체 페이지 레이아웃 ===================== */
+/* 화면에만 적용하여 기존 인쇄 전용 배치를 유지합니다. */
+@media screen {
+  html {
+    min-height: 100%;
+    scroll-padding-top: 88px;
+  }
+  body {
+    display: block;
+    margin: 0;
+    padding: 0 0 88px !important;
+    width: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: #fff;
+  }
+  body > .panel,
+  body > .panel.wide {
+    box-sizing: border-box;
+    width: 100% !important;
+    max-width: none;
+    min-width: 0;
+    min-height: calc(100vh - 152px);
+    min-height: calc(100dvh - 152px);
+    margin: 0 !important;
+    padding: clamp(20px, 2.5vw, 44px);
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: #fff;
+  }
+  /* 헤더 높이가 변해도 본문과 겹치지 않도록 문서 흐름에 둡니다. */
+  #globalHeader {
+    position: sticky;
+    top: 0;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .header-inner {
+    max-width: none;
+    padding-inline: clamp(16px, 2.5vw, 44px);
+    flex-wrap: wrap;
+  }
+  .header-left {
+    min-width: 0;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+  }
+  .userbox {
+    margin-left: auto;
+    flex-wrap: wrap;
+  }
+  .footer-bar {
+    max-width: none;
+    box-sizing: border-box;
+    margin: 0;
+  }
+  #studentMainPage > div {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+  #startPage > input,
+  #startPage > button,
+  #startPage > #warning {
+    display: block;
+    max-width: 440px;
+  }
+  #startPage > #warning { display: none; }
+
+  /* 관리자도 고정 높이의 창 대신 일반 문서처럼 이어집니다. */
+  body > #adminMakerPage {
+    padding: 0 !important;
+  }
+  .maker-container {
+    height: auto !important;
+    min-height: calc(100dvh - 152px);
+    overflow: visible;
+    align-items: stretch;
+  }
+  .maker-sidebar {
+    box-sizing: border-box;
+    overflow: visible;
+  }
+  .maker-content,
+  .maker-body {
+    min-width: 0;
+    overflow: visible;
+  }
+  #inventorySection {
+    height: auto !important;
+    overflow: visible !important;
+    align-items: flex-start;
+  }
+  #inventorySection > .inv-table-wrap {
+    height: auto !important;
+    max-height: none;
+    overflow: auto;
+  }
+  #adminHistoryView {
+    height: auto !important;
+    min-height: 0;
+    overflow: auto;
+  }
+  .header-row {
+    flex-wrap: wrap;
+  }
+  .recent-asgn-panel {
+    height: auto;
+    min-width: 300px;
+    max-width: 40%;
+  }
+  .recent-asgn-body {
+    overflow: visible;
+  }
+  #createFooter {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  #createFooter > div {
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  #customTitleInput {
+    width: min(500px, 100%) !important;
+    min-width: 0;
+    flex: 1 1 220px;
+  }
+  #wrongPage .wrong-plain-wrap {
+    max-height: none;
+    overflow-x: auto;
+  }
+  #wrongPage .wrong-actions {
+    bottom: 0;
+  }
+  .weekly-layout {
+    grid-template-columns: 300px minmax(0, 1fr) !important;
+  }
+  .weekly-layout > div { min-width: 0; }
+  .weekly-table-wrap {
+    max-height: none !important;
+    overflow: auto;
+  }
+  .weekly-submit-bar {
+    flex-wrap: wrap;
+  }
+  #weeklyTitleInput { min-width: 0; }
+  .omr-container {
+    grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  }
+}
+
+@media screen and (max-width: 1200px) {
+  #inventorySection { flex-wrap: wrap; }
+  #inventorySection > .inv-table-wrap { flex-basis: 100% !important; }
+  .recent-asgn-panel {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    border-left: 0;
+    border-top: 2px solid #059669;
+  }
+}
+@media screen and (max-width: 960px) {
+  #studentMainPage > div {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .weekly-layout { grid-template-columns: minmax(0, 1fr) !important; }
+  .weekly-submit-bar > input,
+  .weekly-submit-bar > button {
+    width: 100% !important;
+    flex: 1 1 100% !important;
+  }
+}
+@media screen and (max-width: 720px) {
+  body > .panel,
+  body > .panel.wide {
+    margin: 0 !important;
+    padding: 20px 16px !important;
+    min-height: calc(100dvh - 144px);
+  }
+  .header-inner { padding-inline: 12px !important; }
+  .header-left { flex: 0 1 auto; }
+  .userbox { gap: 4px; }
+  .brand { font-size: 16px !important; }
+  .maker-container { min-height: calc(100dvh - 144px); }
+  #adminHistoryView { padding: 16px !important; }
+}
