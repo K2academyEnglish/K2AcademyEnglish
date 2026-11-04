@@ -272,7 +272,7 @@
     </div>
   </div>
 
-  <div style="display: grid; grid-template-columns: 320px 1fr; gap: 20px;">
+  <div class="weekly-layout" style="display: grid; grid-template-columns: 320px 1fr; gap: 20px;">
     <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; padding:20px; height:fit-content;">
       <h3 style="font-size:16px; margin:0 0 12px 0; color:#111827;">🔍 2. 출제 범위 제한</h3>
       
@@ -296,7 +296,7 @@
         <label style="font-size:13px; cursor:pointer; display:inline-flex; align-items:center;"><input type="checkbox" id="chkWkExcludeSolved" onchange="renderWeeklyTable()" style="margin-right:4px;"> 안 푼 문제만 보기</label>
       </div>
       
-      <div style="flex:1; max-height:550px; overflow-y:auto;">
+      <div class="weekly-table-wrap" style="flex:1; max-height:550px; overflow-y:auto;">
         <table id="weeklyInvTable" style="width:100%; border-collapse:collapse; font-size:12px;">
           <thead>
             <tr style="background:#f3f4f6; position:sticky; top:0; z-index:5;">
@@ -315,7 +315,7 @@
         </table>
       </div>
 
-      <div style="padding:15px; background:#f1f5f9; border-top:2px solid #7c3aed; display:flex; align-items:center; justify-content:space-between; gap:15px;">
+      <div class="weekly-submit-bar" style="padding:15px; background:#f1f5f9; border-top:2px solid #7c3aed; display:flex; align-items:center; justify-content:space-between; gap:15px;">
         <input type="text" id="weeklyTitleInput" placeholder="과제 제목 입력 (미입력 시 '이름 주간평가(Lv.N) - N월 N주차' 자동 포맷 적용)" style="flex:1; margin:0; height:44px; border:1px solid #cbd5e1; border-radius:8px; padding:0 12px; font-size:14px;">
         <button type="button" id="btnSubmitWeeklyFinal" class="btn-primary" style="width:220px; height:44px; background:#7c3aed; font-weight:bold; font-size:15px; border-radius:8px; display:flex; align-items:center; justify-content:center; gap:8px;">🖨️ 주간평가 최종 배부/인쇄</button>
       </div>
