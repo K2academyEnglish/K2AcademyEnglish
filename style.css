@@ -820,7 +820,8 @@
 /* [신규] 학년별 탭 스타일 */
     .grade-tabs { display:flex; gap:4px; margin-bottom:12px; border-bottom:2px solid #e5e7eb; }
     .grade-tab { 
-      flex:1; padding:10px 4px; font-size:13px; white-space:nowrap; min-width:0; text-align:center; cursor:pointer; 
+      flex:1; padding:10px 4px; text-align:center; cursor:pointer;
+      font-size:13px; white-space:nowrap; min-width:0;
       font-weight:bold; color:#6b7280; border-bottom:2px solid transparent; 
       transition: all 0.2s;
     }
@@ -1190,4 +1191,109 @@
     padding: 0 8px !important;
   }
   #globalHeader #btnHeaderLogin { height: 32px; }
+}
+
+/* ===================== 관리자 출제: 화면 안에서 목록별 스크롤 ===================== */
+@media screen and (min-width: 721px) {
+  body.admin-create-mode {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    padding: 0 !important;
+    overflow: hidden;
+  }
+  body.admin-create-mode > #globalHeader {
+    flex: 0 0 auto;
+  }
+  body.admin-create-mode > #adminMakerPage.active {
+    display: flex;
+    flex: 1 1 0;
+    min-height: 0 !important;
+    padding: 0 !important;
+    overflow: hidden;
+  }
+  body.admin-create-mode .maker-container {
+    flex: 1 1 0;
+    width: 100%;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: hidden;
+    align-items: stretch;
+  }
+  body.admin-create-mode .maker-sidebar {
+    flex-shrink: 0;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  body.admin-create-mode .maker-content {
+    min-height: 0;
+    overflow: hidden;
+  }
+  body.admin-create-mode .maker-header {
+    flex: 0 0 auto;
+  }
+  body.admin-create-mode .maker-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+  body.admin-create-mode #inventorySection {
+    flex: 1 1 0;
+    flex-wrap: nowrap;
+    height: 100% !important;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden !important;
+    align-items: stretch;
+  }
+  body.admin-create-mode #inventorySection > .inv-table-wrap {
+    flex: 1 1 0 !important;
+    height: 100% !important;
+    min-height: 0;
+    min-width: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  body.admin-create-mode #recentAssignmentsPanel {
+    flex: 0 1 40%;
+    width: 520px;
+    min-width: 280px;
+    max-width: 40%;
+    height: 100%;
+    min-height: 0;
+    border-top: 0;
+    border-left: 2px solid #059669;
+    overflow: hidden;
+  }
+  body.admin-create-mode .recent-asgn-header {
+    flex: 0 0 auto;
+  }
+  body.admin-create-mode #recentAssignmentsBody {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  body.admin-create-mode #createFooter {
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    width: 100%;
+    margin-top: 0;
+    z-index: 20;
+  }
+}
+@media screen and (min-width: 721px) and (max-width: 1100px) {
+  body.admin-create-mode .maker-sidebar {
+    width: 240px;
+    min-width: 240px;
+    padding: 16px;
+  }
+  body.admin-create-mode #recentAssignmentsPanel {
+    width: 280px;
+    min-width: 240px;
+    max-width: 50%;
+    flex-basis: 45%;
+  }
 }
