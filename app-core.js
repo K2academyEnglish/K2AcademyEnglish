@@ -29,6 +29,7 @@ const selState = {
 
 /* ===================== 패널/탭 제어 ===================== */
 function showPanel(id){
+  if (id !== 'adminMakerPage') document.body.classList.remove('admin-create-mode');
   const nextPanel = document.getElementById(id);
   const pageChanged = nextPanel && !nextPanel.classList.contains('active');
   // 1. 화면 패널들의 ID 명단
@@ -251,6 +252,7 @@ function routeTo(mode, isPopState = false){
 
 /* ✅ 관리자 패널 내부 뷰 전환 (수정된 버전) */
 function switchAdminTab(mode) {
+    document.body.classList.toggle('admin-create-mode', mode === 'create');
     const sidebar = document.getElementById('adminFilterArea');
     const makerHeader = document.querySelector('.maker-header');
     const footer = document.getElementById('createFooter');
