@@ -1221,7 +1221,7 @@ function startAssignment(id, mode){
       if(loadEl) loadEl.classList.remove('active');
       showCustomAlert('오류 발생: ' + err);
     })
-    .loadRetryData(CURRENT_USER, qids, id);
+    .loadRetryData(CURRENT_USER, qids, id, mode === 'omr' ? 'omr' : null);
 }
 
 /* [도우미 함수] 온라인 풀기 화면 HTML 생성 (스파게티 코드 분리용) */
@@ -1272,6 +1272,26 @@ function generateOnlineViewHtml(q) {
         html += `<div style="color:#64748b; font-size:13px; text-align:center; padding:10px;">※ 서술형 문항의 정답은 상단의 OMR 입력칸을 이용해 주십시오.</div>`;
     }
     return html;
+}
+
+// 문항 객체별로 진행 중 요청을 공유합니다. 과제 기록은 캐시하지 않습니다.
+const OMR_DETAIL_PENDING = new WeakMap();
+function ensureOMRQuestionDetail(q) {
+  if (!q._omrLite) return Promise.resolve(q);
+  if (OMR_DETAIL_PENDING.has(q)) return OMR_DETAIL_PENDING.get(q);
+  const pending = new Promise((resolve, reject) => {
+    google.script.run.withSuccessHandler(rows => {
+      const full = (rows || []).find(item => item.qid === q.qid);
+      if (!full) { reject(new Error('문항 정보를 찾을 수 없습니다.')); return; }
+      Object.assign(q, full);
+      delete q._omrLite;
+      resolve(q);
+    }).withFailureHandler(reject).getQuestionsByQids([q.qid]);
+  });
+  OMR_DETAIL_PENDING.set(q, pending);
+  // 실패한 요청은 재시도할 수 있도록 제거합니다.
+  pending.then(() => OMR_DETAIL_PENDING.delete(q), () => OMR_DETAIL_PENDING.delete(q));
+  return pending;
 }
 
 /* [프론트엔드] OMR 답안지 및 결과 화면 렌더링 함수 (최적화 통합 버전) */
@@ -1388,7 +1408,20 @@ function renderOMRSheet(qs, history, isReviewMode, assignmentId) {
     btnExp.textContent = '해설';
     btnExp.style.display = (isCorrect || currentWrongCount >= 2) ? 'inline-block' : 'none';
     btnExp.setAttribute('data-exp-btn', idx);
-    btnExp.onclick = function() { toggleExplanation(this, idx); };
+    btnExp.onclick = async function() {
+        if (this.disabled) return;
+        this.disabled = true;
+        try {
+            await ensureOMRQuestionDetail(q);
+            if (!card.isConnected || !CURRENT_QUIZ_DATA.includes(q)) return;
+            if (!expBox.dataset.detailReady) {
+                expBox.innerHTML = `<b style="color:#2b6cb0;">[해설]</b><br>${sanitizeInlineHTML(q.explanation || '해설 정보가 등록되지 않았습니다.')}`;
+                expBox.dataset.detailReady = 'true';
+            }
+            toggleExplanation(this, idx);
+        } catch (err) { showCustomAlert('해설 로드 실패: ' + err); }
+        finally { this.disabled = false; }
+    };
     
     // [신규] '온라인' 버튼 생성 및 아코디언 토글 (지연 로딩 및 스파게티 분리 적용)
     const btnOnline = document.createElement('button');
@@ -1398,18 +1431,24 @@ function renderOMRSheet(qs, history, isReviewMode, assignmentId) {
     btnOnline.style.display = isReviewMode ? 'none' : 'inline-block';
     btnOnline.style.marginRight = '4px';
     btnOnline.style.background = '#4f46e5';
-    btnOnline.onclick = function() {
-        const allOnlineBoxes = document.querySelectorAll('.online-box');
+    btnOnline.onclick = async function() {
+        if (this.disabled) return;
         const targetBox = card.querySelector('.online-box');
-        const isHidden = targetBox.style.display === 'none';
-        
-        // 지연 로딩: 도우미 함수 호출로 60줄짜리 스파게티 코드를 한 줄로 깔끔하게 대체
-        if (isHidden && targetBox.innerHTML === '') {
-            targetBox.innerHTML = generateOnlineViewHtml(q);
+        if (targetBox.style.display !== 'none') {
+            targetBox.style.display = 'none';
+            return;
         }
-        
-        allOnlineBoxes.forEach(box => box.style.display = 'none');
-        if (isHidden) targetBox.style.display = 'block';
+        this.disabled = true;
+        const previousText = this.textContent;
+        this.textContent = '불러오는 중...';
+        try {
+            await ensureOMRQuestionDetail(q);
+            if (!card.isConnected || !CURRENT_QUIZ_DATA.includes(q)) return;
+            if (targetBox.innerHTML === '') targetBox.innerHTML = generateOnlineViewHtml(q);
+            document.querySelectorAll('.online-box').forEach(box => box.style.display = 'none');
+            targetBox.style.display = 'block';
+        } catch (err) { showCustomAlert('문항 로드 실패: ' + err); }
+        finally { this.disabled = false; this.textContent = previousText; }
     };
     headerFlex.appendChild(btnOnline);
     headerFlex.appendChild(btnExp);
@@ -1522,7 +1561,10 @@ function renderOMRSheet(qs, history, isReviewMode, assignmentId) {
     // [해설 박스 추가]
     const expBox = document.createElement('div');
     expBox.className = 'explanation-box';
-    expBox.innerHTML = `<b style="color:#2b6cb0;">[해설]</b><br>${sanitizeInlineHTML(q.explanation || '해설 정보가 등록되지 않았습니다.')}`;
+    if (!q._omrLite) {
+        expBox.innerHTML = `<b style="color:#2b6cb0;">[해설]</b><br>${sanitizeInlineHTML(q.explanation || '해설 정보가 등록되지 않았습니다.')}`;
+        expBox.dataset.detailReady = 'true';
+    }
     card.appendChild(expBox);
 
     // [속도 최적화 2] 카드를 컨테이너에 추가 (아직 화면에 안 그림)
@@ -1799,5 +1841,8 @@ function startRetryAssignment(id, qidsInput, isReviewMode) {
   google.script.run.withSuccessHandler(res => {
       if(loadEl) loadEl.classList.remove('active');
       renderOMRSheet(res.qs, res.history, isReviewMode, id);
-  }).loadRetryData(CURRENT_USER, qids, id); 
+  }).withFailureHandler(err => {
+      if(loadEl) loadEl.classList.remove('active');
+      showCustomAlert('과제 로드 실패: ' + err);
+  }).loadRetryData(CURRENT_USER, qids, id, 'omr'); 
 }
