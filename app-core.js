@@ -302,8 +302,10 @@ function switchAdminTab(mode) {
 
 /* ===================== 시작 동작 ===================== */
 let SOURCE_FILTERS_CACHE = null; // 필터 메타데이터 캐시
+let LOGIN_PENDING = false; // 더블클릭/Enter 중복 로그인 요청 방지
 
 function startQuizEntry(){
+  if (LOGIN_PENDING) return;
   const idInp = document.getElementById('headerUsername').value || document.getElementById('userIdInput').value;
   const inputId = idInp.trim();
   if(!inputId){ showCustomAlert('ID를 입력하세요.'); return; }
@@ -315,40 +317,56 @@ function startQuizEntry(){
   }
 
   if(hasGsRun()){
+    LOGIN_PENDING = true;
     google.script.run
       .withSuccessHandler(res => {
+        LOGIN_PENDING = false;
         if(!res.success) {
            if(loadEl) loadEl.classList.remove('active');
            showCustomAlert('로그인 실패: ' + (res.error || '알 수 없는 오류'));
            return;
         }
-        CURRENT_USER = res; 
+        const { managedStudents, ...user } = res;
+        CURRENT_USER = user;
         localStorage.setItem('k2_session', JSON.stringify({
-                user: res,
+                user: user,
                 expiry: Date.now() + 600000
             }));
             
             syncLoginUI();
         document.getElementById('mainTabs').style.display = 'flex';
 
-        if(res.role === 'manager') {
-            google.script.run.withSuccessHandler(list => {
-                MANAGED_STUDENTS = list || [];
-                initAdminPage(); // 드롭다운 즉시 생성
+        if(user.role === 'manager') {
+            const openManager = list => {
+                // 이전 로그인 요청이 로그아웃/계정 전환 뒤 화면을 덮지 않도록 확인
+                if (CURRENT_USER !== user) return;
+                MANAGED_STUDENTS = Array.isArray(list) ? list : [];
+                initAdminPage();
                 if(loadEl) loadEl.classList.remove('active');
-                routeTo('admin-create'); // 로그인 후 바로 새 과제 탭으로 이동
-            }).getManagedStudents(res.id);
+                routeTo('admin-create');
+            };
+            if (Array.isArray(managedStudents)) {
+                openManager(managedStudents);
+            } else {
+                // GS를 먼저 교체하지 않은 환경도 기존 API로 동작
+                google.script.run.withSuccessHandler(openManager)
+                  .withFailureHandler(err => {
+                      if(loadEl) loadEl.classList.remove('active');
+                      showCustomAlert('학생 목록 로드 실패: ' + err);
+                  }).getManagedStudents(user.id);
+            }
         } else {
             if(loadEl) loadEl.classList.remove('active');
             showPanel('studentMainPage');
-            if (typeof loadMyAssignments === 'function') loadMyAssignments(true); // 백그라운드 사전 로딩
+            // 과제 목록은 과제 탭에 진입할 때만 조회
         }
       })
       .withFailureHandler(err => {
+        LOGIN_PENDING = false;
         if(loadEl) loadEl.classList.remove('active');
         showCustomAlert('서버 오류: ' + err);
       })
-      .doLogin(inputId);
+      .doLogin(inputId, true);
   }
 }
 
@@ -363,23 +381,8 @@ function initAdminPage() {
     if(selectEl) selectEl.innerHTML = optionsHtml;
     if(weeklySelect) weeklySelect.innerHTML = optionsHtml;
 
-    // 2. 필터 메타데이터는 캐시가 없을 때만 백그라운드에서 1회 로드
-    if (!SOURCE_FILTERS_CACHE) {
-        google.script.run.withSuccessHandler(res => {
-            SOURCE_FILTERS_CACHE = res;
-            const weakBox = document.getElementById('weeklyWeakTypeChips');
-            if(weakBox && res && res.types && weakBox.children.length === 0) {
-                weakBox.innerHTML = '';
-                res.types.forEach(t => {
-                    const btn = document.createElement('button');
-                    btn.className = 'chip'; btn.textContent = t; btn.value = t;
-                    btn.style.width = 'auto'; btn.style.padding = '8px 12px';
-                    btn.onclick = function() { this.classList.toggle('selected'); };
-                    weakBox.appendChild(btn);
-                });
-            }
-        }).getSourceFiltersAndTypes();
-    }
+    // 필터는 실제 사용 시 renderWkDefaultChips()에서 조회합니다.
+    // 로그인 시에는 문제 인덱스나 필터 데이터를 읽지 않습니다.
 }
 
 /* ===================== 이벤트 바인딩 ===================== */
