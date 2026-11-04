@@ -1118,3 +1118,76 @@
   .maker-container { min-height: calc(100dvh - 144px); }
   #adminHistoryView { padding: 16px !important; }
 }
+
+/* ===================== 첫 로그인 화면 중앙 정렬 / 상단 한 줄 정렬 ===================== */
+@media screen {
+  body > #startPage.active {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 20px !important;
+  }
+  #startPage > h1 {
+    width: 100%;
+    max-width: 440px;
+    text-align: center;
+    margin: 0 0 24px;
+  }
+  #startPage > #userIdInput,
+  #startPage > #btnStart,
+  #startPage > #warning {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 440px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  #startPage > #userIdInput { margin-top: 0; margin-bottom: 16px; }
+  #startPage > #btnStart { margin-top: 0; margin-bottom: 0; }
+  #startPage > #warning { text-align: center; }
+
+  #globalHeader .header-inner,
+  #globalHeader .header-left,
+  #globalHeader .userbox {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+  #globalHeader .header-left { min-width: 0; }
+  #globalHeader .brand { flex-shrink: 0; }
+  #globalHeader .userbox { flex-shrink: 0; }
+  /* 기본 text 입력의 width:100%와 아래 여백이 상단에도 적용되던 문제를 해제합니다. */
+  #globalHeader #headerUsername {
+    flex: 0 1 140px;
+    width: 140px;
+    min-width: 0;
+    max-width: 24vw;
+    margin: 0;
+    height: var(--headerCtlH);
+    padding: 0 12px;
+  }
+  #globalHeader #btnHeaderLogin {
+    flex: 0 0 auto;
+    width: auto;
+    margin: 0;
+    height: var(--headerCtlH);
+  }
+  /* 좁은 PC 화면의 메뉴도 줄바꿈 대신 같은 줄에서 이동합니다. */
+  #globalHeader .top-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  #globalHeader .top-tabs::-webkit-scrollbar { display: none; }
+  #globalHeader #studentTabGroup,
+  #globalHeader #adminTabGroup { flex-shrink: 0; }
+}
+@media screen and (max-width: 720px) {
+  #globalHeader #headerUsername {
+    flex-basis: 80px;
+    width: 80px !important;
+    max-width: 24vw;
+    height: 32px;
+    padding: 0 8px !important;
+  }
+  #globalHeader #btnHeaderLogin { height: 32px; }
+}
