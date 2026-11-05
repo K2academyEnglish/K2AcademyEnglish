@@ -1297,3 +1297,36 @@
     flex-basis: 45%;
   }
 }
+
+/* 바구니 목록은 하단 버튼 줄바꿈과 분리하여 세로 한 열로 유지합니다. */
+@media screen {
+  #createFooter > #cartListPanel {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 0;
+    box-sizing: border-box;
+    height: min(420px, 50vh);
+    height: min(420px, 50dvh);
+    max-height: calc(100dvh - 160px);
+    min-height: 0;
+    overflow: hidden;
+  }
+  #cartListPanel > div:first-child {
+    flex: 0 0 auto;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  #cartListPanel > div:last-child {
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  #cartListPanel table { min-width: 640px; }
+  #createFooter { overflow: visible; }
+}
+@media screen and (min-width: 721px) {
+  body.admin-create-mode .maker-content { overflow: visible; }
+}
