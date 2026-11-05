@@ -671,6 +671,12 @@ function gradeAll(onSuccessCallback, forceCompleteStatus){
       google.script.run
         .withSuccessHandler(function(res){
           if (isClickEvent && loadEl) loadEl.classList.remove('active');
+          if (!res || res.ok !== true) {
+              const btn = document.getElementById('btnSubmitOMR');
+              if (btn) { btn.disabled = false; btn.textContent = '다시 제출'; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
+              showCustomAlert('답안 저장 실패: ' + (res && res.msg || '서버 응답을 확인하세요.'));
+              return;
+          }
 
           if(onSuccessCallback && typeof onSuccessCallback === 'function') {
               onSuccessCallback(res); 
