@@ -1242,7 +1242,7 @@ function showAssignmentDetail(studentId, qidsStr, title, assignmentId) {
     .withFailureHandler(err => {
       body.innerHTML = `<div style="color:red; padding:20px;">서버 오류: ${err}</div>`;
     })
-    .loadRetryData(studentId, qids, assignmentId);
+    .getAssignmentResult(studentId, qids, assignmentId);
 }
 
 function closeAdminDetail() {
@@ -1396,10 +1396,7 @@ function toggleRecentAssignmentDetail(studentId, qidsStr, assignmentId, detailDi
   detailDiv.style.display = 'block';
   if (iconEl) iconEl.innerText = '▲';
 
-  // 이미 한 번 불러온 결과 표가 있으면 재통신 없이 즉시 노출
-  if (detailDiv.getAttribute('data-loaded') === 'true') {
-    return;
-  }
+  // 열 때마다 최신 결과표를 확인해 학생의 추가 제출을 반영합니다.
 
   let qids = [];
   try {
@@ -1493,7 +1490,7 @@ function toggleRecentAssignmentDetail(studentId, qidsStr, assignmentId, detailDi
     .withFailureHandler(err => {
       detailDiv.innerHTML = `<div style="color:#dc2626; padding:10px; font-size:12px;">서버 오류: ${err}</div>`;
     })
-    .loadRetryData(studentId, qids, assignmentId);
+    .getAssignmentResult(studentId, qids, assignmentId);
 }
 
 // 2. 통합 출제 버튼 핸들러 (교체)
