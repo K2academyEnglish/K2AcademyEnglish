@@ -376,7 +376,7 @@ function loadInventoryData() {
     loadEl.classList.add('active');
   }
 
-  google.script.run.withSuccessHandler(data => {
+  fetchInventoryRows(val).then(data => {
     if (requestSequence !== INVENTORY_REQUEST_SEQUENCE || CURRENT_USER !== requestUser || (selectEl && selectEl.value !== val)) return;
     if(loadEl) loadEl.classList.remove('active');
     
@@ -392,11 +392,11 @@ function loadInventoryData() {
         loadRecentAssignmentsForStudent(false);
     }
       
-  }).withFailureHandler(err => {
+  }, err => {
     if (requestSequence !== INVENTORY_REQUEST_SEQUENCE || CURRENT_USER !== requestUser) return;
     if(loadEl) loadEl.classList.remove('active');
     showCustomAlert('오류 발생: ' + err);
-  }).getAdminQuestionInventory(val); // ★ 이름 대신 ID(또는 값) 전달
+  });
 }
 
 // [신규] 관리자 탭 전환
@@ -937,18 +937,30 @@ function loadAdminHistory() {
   const searchName = ''; 
   const loadAll = document.getElementById('chkLoadAll') ? document.getElementById('chkLoadAll').checked : false;
   
-  // 로딩 중임을 시각적으로 표시 (GS 응답 전까지)
-  tbody.innerHTML = '<tr><td colspan="6" style="padding:40px; text-align:center; color:#2b6cb0; font-weight:bold;">📋 배부 기록을 서버에서 가져오는 중입니다...</td></tr>';
-  
-  google.script.run.withSuccessHandler(list => {
-     ADMIN_HISTORY_CACHE = list || [];
-     renderHistoryUI();
-     if(ADMIN_HISTORY_CACHE.length === 0) {
+  if (!CURRENT_USER) return;
+  const user = CURRENT_USER;
+
+  // 저장된 배부 기록을 즉시 표시하고, 최신 기록은 뒤에서 받아 바뀐 경우에만 다시 그립니다.
+  let shown = false;
+  swrLoad({
+    key: 'adminHistory:' + (loadAll ? 'all' : '3m'), scope: user.id,
+    func: 'getAllAssignmentsForAdmin', args: [searchName, loadAll],
+    guard: () => CURRENT_USER === user,
+    onData: list => {
+      shown = true;
+      ADMIN_HISTORY_CACHE = Array.isArray(list) ? list : [];
+      renderHistoryUI();
+      if(ADMIN_HISTORY_CACHE.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" style="padding:40px; text-align:center; color:#6b7280;">데이터가 없습니다.</td></tr>';
-     }
-  }).withFailureHandler(err => {
-     tbody.innerHTML = '<tr><td colspan="6" style="padding:40px; text-align:center; color:#dc2626;">❌ 데이터를 불러오지 못했습니다: ' + err + '</td></tr>';
-  }).getAllAssignmentsForAdmin(searchName, loadAll);
+      }
+    },
+    onError: (err, info) => {
+      if (info.hadCache) showToast('최신 배부 기록을 불러오지 못했습니다. 저장된 기록을 표시합니다.', 'error');
+      else tbody.innerHTML = '<tr><td colspan="6" style="padding:40px; text-align:center; color:#dc2626;">❌ 데이터를 불러오지 못했습니다: ' + escapeHTML(String(err)) + '</td></tr>';
+    }
+  });
+  // 저장본이 없을 때만 로딩 문구 표시
+  if (!shown) tbody.innerHTML = '<tr><td colspan="6" style="padding:40px; text-align:center; color:#2b6cb0; font-weight:bold;">📋 배부 기록을 서버에서 가져오는 중입니다...</td></tr>';
 }
 
 // 2-2. 화면 그리기 (서버 통신 X) - 체크박스 변경 시 즉시 실행
@@ -1723,6 +1735,7 @@ function refreshMasterIndex() {
     google.script.run
       .withSuccessHandler(res => {
         if(loadEl) loadEl.classList.remove('active');
+        invalidateQuestionMeta(); // 브라우저에 저장된 문항 목록도 새로 받도록
         showCustomAlert('인덱스 새로고침 완료!');
         
         if(typeof loadInventoryData === 'function') {
@@ -1785,7 +1798,7 @@ function loadWeeklyStudentData() {
     }
 
     // [최적화] 2번 직렬 호출 대신 loadWeeklyStudentBundle 단 1회 호출로 통계+인벤토리 동시 수신
-    google.script.run.withSuccessHandler(bundle => {
+    fetchWeeklyBundle(val, 35).then(bundle => {
         if(loadEl) loadEl.classList.remove('active');
         const stats = (bundle && bundle.stats) ? bundle.stats : [];
         const invData = (bundle && bundle.inventory) ? bundle.inventory : [];
@@ -1820,10 +1833,10 @@ function loadWeeklyStudentData() {
         WEEKLY_INVENTORY_DATA = invData.filter(q => q && q.qid);
         initWeeklyScopeFilters();
         renderWeeklyTable();
-    }).withFailureHandler(err => {
+    }, err => {
         if(loadEl) loadEl.classList.remove('active');
         showCustomAlert('데이터 로드 실패: ' + err);
-    }).loadWeeklyStudentBundle(val, 35);
+    });
 }
 
 function renderWkDefaultChips() {
@@ -2106,3 +2119,71 @@ document.addEventListener('DOMContentLoaded', function() {
     btnLoadInv.onclick = loadInventoryData;
   }
 });
+
+
+/* ===================== 문항 목록(공통) + 학생 풀이 통계(학생별) 분리 로딩 =====================
+ * 문항 목록은 학생과 무관하므로 브라우저에 저장해 두고, 서버의 인덱스 버전이 바뀐 경우에만 새로 받습니다.
+ * 학생을 바꿀 때는 그 학생의 풀이 통계(작은 데이터)만 받아 합칩니다.
+ */
+const QMETA_KEY = 'qmeta';
+let QMETA_MEM = null;      // { version, rows, checked }
+let QMETA_PENDING = null;
+
+function loadQuestionMeta() {
+  if (QMETA_MEM && QMETA_MEM.checked) return Promise.resolve(QMETA_MEM.rows); // 이번 접속에서 확인 완료
+  if (QMETA_PENDING) return QMETA_PENDING;
+  const saved = swrRead(QMETA_KEY, 'global');
+  const known = (saved && saved.v && Array.isArray(saved.v.rows)) ? saved.v.version : '';
+  QMETA_PENDING = gsCall('getQuestionMetaIndex', [known]).then(res => {
+    if (res && res.unchanged && known) {
+      QMETA_MEM = { version: known, rows: saved.v.rows, checked: true };
+    } else if (res && Array.isArray(res.rows)) {
+      QMETA_MEM = { version: res.version, rows: res.rows, checked: true };
+      swrWrite(QMETA_KEY, 'global', { version: res.version, rows: res.rows });
+    } else {
+      throw new Error('문항 목록 형식 오류');
+    }
+    return QMETA_MEM.rows;
+  });
+  QMETA_PENDING.then(() => { QMETA_PENDING = null; }, () => { QMETA_PENDING = null; });
+  return QMETA_PENDING;
+}
+
+function invalidateQuestionMeta() {
+  QMETA_MEM = null;
+  swrInvalidate(QMETA_KEY, 'global');
+}
+
+// 서버 getAdminQuestionInventory와 같은 모양의 행으로 합칩니다.
+function buildInventoryRows(metaRows, qstats) {
+  qstats = qstats || {};
+  return (metaRows || []).map(m => {
+    const qid = m[0], extId = m[7] || '', linkedId = m[8] || '';
+    const st = qstats[String(extId).trim()] || qstats[qid] || null;
+    return {
+      qid: qid, grade: m[1], year: m[2], month: m[3], detail: m[4], type: m[5], difficulty: m[6],
+      number: extId, isSolved: st ? st[0] === 1 : false, wrongCount: st ? st[1] : 0,
+      lastTs: st ? st[2] : null, groupHash: linkedId || extId || qid
+    };
+  });
+}
+
+// 관리자 '불러오기'용. 새 서버 함수가 없으면(구버전 GS) 기존 통합 함수로 대체합니다.
+function fetchInventoryRows(studentId) {
+  return Promise.all([loadQuestionMeta(), gsCall('getStudentQuestionStats', [studentId])])
+    .then(([meta, st]) => buildInventoryRows(meta, st && st.qstats))
+    .catch(err => {
+      if (isMissingServerFunction(err)) return gsCall('getAdminQuestionInventory', [studentId]);
+      throw err;
+    });
+}
+
+// 주간평가 '학생 데이터 로드'용
+function fetchWeeklyBundle(studentId, days) {
+  return Promise.all([loadQuestionMeta(), gsCall('loadWeeklyStudentStats', [studentId, days])])
+    .then(([meta, r]) => ({ stats: (r && r.stats) || [], inventory: buildInventoryRows(meta, r && r.qstats) }))
+    .catch(err => {
+      if (isMissingServerFunction(err)) return gsCall('loadWeeklyStudentBundle', [studentId, days]);
+      throw err;
+    });
+}
