@@ -719,33 +719,27 @@ let WRONG_SELECTED = new Set();
 function loadWrongStats(){ return runAfterAttemptsSaved(_loadWrongStatsNow); }
 function _loadWrongStatsNow(){
   if(!CURRENT_USER) return;
-
-  // [수정] 이미 불러온 데이터가 있으면 서버 호출 없이 바로 그리고 종료
-  if(WRONG_STATS && WRONG_STATS.length > 0) {
-      renderWrongStatsTableV2(WRONG_STATS);
-      return;
-  }
-
   if(!hasGsRun()){ showCustomAlert('서버 연결 문제'); return; }
-  
-  const loadEl = document.getElementById('loadingOverlay');
-  if(loadEl) {
-      loadEl.querySelector('.loading-text').innerHTML = '오답 데이터를 가져오는 중...';
-      loadEl.classList.add('active');
-  }
+  const user = CURRENT_USER;
+  const wrap = document.getElementById('wrongStatsWrap');
 
-  google.script.run.withSuccessHandler(stats=>{
-    if(loadEl) loadEl.classList.remove('active');
-    
-    WRONG_STATS = Array.isArray(stats)? stats: [];
-    WRONG_SELECTED.clear();
-    renderWrongStatsTableV2(WRONG_STATS);
-  })
-  .withFailureHandler(err => {
-      if(loadEl) loadEl.classList.remove('active'); 
-      showCustomAlert('오류: ' + err);
-  })
-  .getWrongStats(CURRENT_USER, null);
+  // 저장된 오답 목록을 즉시 표시하고, 최신 기록이 다를 때만 다시 그립니다.
+  let shown = false;
+  swrLoad({
+    key: 'wrongStats', scope: user.id, func: 'getWrongStats', args: [user, null],
+    guard: () => CURRENT_USER === user,
+    onData: stats => {
+      shown = true;
+      WRONG_STATS = Array.isArray(stats) ? stats : [];
+      WRONG_SELECTED.clear();
+      renderWrongStatsTableV2(WRONG_STATS);
+    },
+    onError: (err, info) => {
+      if (info.hadCache) showToast('최신 오답 기록을 불러오지 못했습니다. 저장된 목록을 표시합니다.', 'error');
+      else if (wrap) wrap.innerHTML = `<div style="padding:20px; text-align:center; color:#dc2626;">오류: ${escapeHTML(String(err))}</div>`;
+    }
+  });
+  if (!shown && wrap) wrap.innerHTML = inlineLoadingHTML('오답 데이터를 가져오는 중...');
 }
 
 function renderWrongStatsTableV2(stats){
@@ -1125,24 +1119,28 @@ function _loadMyAssignmentsNow(){
   const listActive = document.getElementById('assignmentList');
   const listDone = document.getElementById('completedAssignmentList');
   
-  if(!listActive || !listDone) return;
-  
-  // 로딩 표시
-  const loadEl = document.getElementById('loadingOverlay');
-  if(loadEl) {
-      loadEl.querySelector('.loading-text').innerHTML = '과제 보관함을 확인 중...';
-      loadEl.classList.add('active');
-  }
+  if(!listActive || !listDone || !CURRENT_USER) return;
+  const user = CURRENT_USER;
 
-  // ★ [최적화] 서버 통신 1회로 통합하여 미완료/완료 과제 동시 로드
-  google.script.run.withSuccessHandler(res => {
-      if(loadEl) loadEl.classList.remove('active');
-      renderAssignmentList(listActive, res.active, false); // 미완료 렌더링
-      renderAssignmentList(listDone, res.completed, true); // 완료 렌더링
-  }).withFailureHandler(err => {
-      if(loadEl) loadEl.classList.remove('active');
-      showCustomAlert('과제 목록 로드 실패: ' + err);
-  }).getAllMyAssignments(CURRENT_USER);
+  // 저장된 목록이 있으면 즉시 표시하고, 최신 목록은 뒤에서 받아 바뀐 경우에만 다시 그립니다.
+  let shown = false;
+  swrLoad({
+    key: 'myAssignments', scope: user.id, func: 'getAllMyAssignments', args: [user],
+    guard: () => CURRENT_USER === user,
+    onData: res => {
+      shown = true;
+      renderAssignmentList(listActive, (res && res.active) || [], false);   // 미완료
+      renderAssignmentList(listDone, (res && res.completed) || [], true);   // 완료
+    },
+    onError: (err, info) => {
+      if (info.hadCache) showToast('최신 과제 목록을 불러오지 못했습니다. 저장된 목록을 표시합니다.', 'error');
+      else listActive.innerHTML = `<div style="padding:20px; text-align:center; color:#dc2626; font-size:14px;">과제 목록 로드 실패: ${escapeHTML(String(err))}</div>`;
+    }
+  });
+  if (!shown) {
+    listActive.innerHTML = inlineLoadingHTML('과제 보관함을 확인 중...');
+    listDone.innerHTML = '';
+  }
 }
 
 let MY_ASSIGNMENTS_CACHE = []; // 내 과제 데이터를 임시 저장할 배열
@@ -1951,7 +1949,10 @@ function flushAttemptQueue() {
       ATTEMPT_SAVING = false;
       ATTEMPT_RETRY_IDX = 0;
       _writeAttemptQueue(_readAttemptQueue().filter(x => x.attemptId !== item.attemptId));
-      WRONG_STATS = []; // 오답노트가 최신 기록을 다시 불러오도록 캐시 비움
+      // 방금 저장한 답안이 반영되도록 해당 학생의 과제/오답 저장본을 비움
+      const uid = item.user && item.user.id;
+      if (uid) { swrInvalidate('myAssignments', uid); swrInvalidate('wrongStats', uid); }
+      WRONG_STATS = [];
       flushAttemptQueue();
     })
     .withFailureHandler(err => onFail(err))
@@ -2009,3 +2010,35 @@ window.addEventListener('beforeunload', function (e) {
 });
 // 이전 접속에서 못 보낸 답안 재전송
 setTimeout(flushAttemptQueue, 1500);
+
+
+/* ===================== 학생 '문제 범위 선택' 필터 =====================
+ * 학년별 년도/월(교재)/세부항목, 난이도, 유형 칩을 서버 필터 목록(getSourceFiltersAndTypes)으로 채웁니다.
+ * 문제 메타는 학생과 무관한 공통 데이터라 'global' 저장본을 공유합니다.
+ */
+const STUDENT_GRADE_IDS = ['m1', 'm2', 'm3', 'h1', 'h2', 'h3'];
+function renderStudentFilterChips(res) {
+  if (!res) return;
+  SOURCE_FILTERS_CACHE = res;
+  STUDENT_GRADE_IDS.forEach(g => {
+    renderChipsV2('yearChips_' + g, (res.yearsByGrade && res.yearsByGrade[g]) || [], 'years', selState[g]);
+    renderChipsV2('monthChips_' + g, (res.monthsByGrade && res.monthsByGrade[g]) || [], 'months', selState[g]);
+    renderChipsV2('detailChips_' + g, (res.detailsByGrade && res.detailsByGrade[g]) || [], 'details', selState[g]);
+  });
+  renderChipsV2('diffChips', (res.difficulties || []).map(String), 'difficulties', selState.common);
+  renderChipsV2('typeChips', res.types || [], 'types', selState.common);
+}
+function loadStudentFilters() {
+  let shown = false;
+  swrLoad({
+    key: 'sourceFilters', scope: 'global', func: 'getSourceFiltersAndTypes', args: [],
+    onData: res => { shown = true; renderStudentFilterChips(res); },
+    onError: (err, info) => {
+      if (!info.hadCache) showSelectWarning('문제 범위 목록을 불러오지 못했습니다: ' + err);
+    }
+  });
+  if (!shown) {
+    const box = document.getElementById('yearChips_m1');
+    if (box) box.innerHTML = '<span style="font-size:13px; color:#6b7280;">⏳ 범위 목록을 불러오는 중...</span>';
+  }
+}
