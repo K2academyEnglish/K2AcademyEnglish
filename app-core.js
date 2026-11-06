@@ -640,20 +640,8 @@ on('btnShowMap', 'click', () => {
               const mainTabs = document.getElementById('mainTabs');
               if (mainTabs) mainTabs.style.display = 'flex';
               
-              if (CURRENT_USER.role === 'manager') {
-                  google.script.run.withSuccessHandler(list => {
-                      MANAGED_STUDENTS = list || [];
-                      initAdminPage();
-                      // 초기 진입 시에만 관리자 화면으로 즉시 이동
-                      if (!window.location.hash || window.location.hash === '#startPage') {
-                          routeTo('admin-create');
-                      }
-                  }).getManagedStudents(CURRENT_USER.id);
-              } else {
-                  if (!window.location.hash || window.location.hash === '#startPage') {
-                      showPanel('studentMainPage');
-                  }
-              }
+              // 새로고침 시 주소(#vocab, #assignment 등)에 맞는 화면으로 복원
+              restorePageFromHash(CURRENT_USER);
               prefetchAfterLogin(CURRENT_USER);
               autoLoginSuccess = true;
           } else {
@@ -687,9 +675,13 @@ on('btnShowMap', 'click', () => {
         }
     } else {
         // state가 없는 경우 (초기 진입 화면)
-        showPanel('studentMainPage');
-        document.querySelectorAll('.top-tab').forEach(t => t.classList.remove('active'));
-        hideFooter();
+        if (CURRENT_USER.role === 'manager') {
+            routeTo('admin-create', true);
+        } else {
+            showPanel('studentMainPage');
+            document.querySelectorAll('.top-tab').forEach(t => t.classList.remove('active'));
+            hideFooter();
+        }
     }
   });
 } // <--- initUI 함수 끝
@@ -760,4 +752,56 @@ function prefetchAfterLogin(user) {
       }).then(() => { VOCAB_PREFETCH = null; });
     }
   }, 300);
+}
+
+
+/* ===================== 새로고침 시 주소에 맞는 화면 복원 =====================
+ * 주소 끝의 #표시(예: #vocab)가 그 사용자 역할에서 열 수 있는 화면이면 그 화면을,
+ * 아니면 첫 화면(학생: 메인 메뉴 / 관리자: 과제출제)을 엽니다.
+ * 문제 풀이·OMR 화면은 주소가 따로 없으므로 그 화면을 열었던 목록(예: 과제 목록)으로 돌아갑니다.
+ */
+const STUDENT_PAGES = ['quiz', 'wrong', 'vocab', 'assignment'];
+const ADMIN_PAGES = ['admin-create', 'admin-history', 'weekly', 'admin-vocab'];
+
+function restorePageFromHash(user) {
+  const mode = decodeURIComponent((window.location.hash || '').replace(/^#/, ''));
+  const goTo = (page) => {
+    // 새로고침 후 뒤로가기가 자연스럽도록 현재 기록을 교체(새 기록을 쌓지 않음)
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState({ page: page }, '', '#' + page);
+    }
+    routeTo(page, true);
+  };
+
+  if (user.role === 'manager') {
+    // 관리자 화면은 담당 학생 목록이 필요하므로 받는 동안 로딩 표시
+    const loadEl = document.getElementById('loadingOverlay');
+    if (loadEl) {
+      loadEl.querySelector('.loading-text').innerHTML = '관리자 화면을 여는 중...';
+      loadEl.classList.add('active');
+    }
+    google.script.run.withSuccessHandler(list => {
+      if (CURRENT_USER !== user) return;
+      if (loadEl) loadEl.classList.remove('active');
+      MANAGED_STUDENTS = list || [];
+      initAdminPage();
+      goTo(ADMIN_PAGES.includes(mode) ? mode : 'admin-create');
+    }).withFailureHandler(err => {
+      if (loadEl) loadEl.classList.remove('active');
+      showCustomAlert('학생 목록 로드 실패: ' + err);
+      goTo(ADMIN_PAGES.includes(mode) ? mode : 'admin-create');
+    }).getManagedStudents(user.id);
+    return;
+  }
+
+  if (STUDENT_PAGES.includes(mode)) {
+    goTo(mode);
+  } else {
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState({ page: 'main' }, '', window.location.pathname + window.location.search);
+    }
+    showPanel('studentMainPage');
+    document.querySelectorAll('.top-tab').forEach(t => t.classList.remove('active'));
+    hideFooter();
+  }
 }
