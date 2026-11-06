@@ -148,94 +148,54 @@
 
   <!-- 단어장 -->
   <div class="panel" id="vocabPage">
-    <h2>단어장</h2>
-    <div id="adminVocabBar" style="display:none; background:#eff6ff; border:1px solid #dbeafe; padding:12px; border-radius:10px; margin-bottom:16px; align-items:center; gap:10px; flex-wrap:wrap;">
+    <div class="vp-title-row">
+      <h2 style="margin:0;">단어장</h2>
+      <!-- 오늘 학습 요약 (vocabUpdateStats / vocabUpdateQuizStats가 채움) -->
+      <div id="vocabStats" class="vp-summary" style="display:none;">
+        <span>오늘 추가 <b id="todayAdded">0</b></span>
+        <span>오늘 외움 <b id="todayMemorized">0</b></span>
+        <span>오늘 시험 <b id="todayQuiz">0</b> (정답 <b id="todayCorrect">0</b>)</span>
+      </div>
+    </div>
+
+    <div id="adminVocabBar" style="display:none; background:#eff6ff; border:1px solid #dbeafe; padding:12px; border-radius:10px; margin:12px 0; align-items:center; gap:10px; flex-wrap:wrap;">
       <label style="font-weight:bold; color:#1e40af;">조회 학생:</label>
       <select id="adminVocabStudentSelect" style="width:180px; margin:0; padding:8px; font-size:14px; border-radius:6px; border:1px solid #cbd5e1;" onchange="onAdminVocabStudentChange(this.value)">
         <option value="">학생 선택</option>
       </select>
       <span id="adminVocabInfo" style="font-size:13px; color:#475569; margin-left:auto;">학생을 선택하면 해당 학생의 단어장과 기록이 표시됩니다.</span>
     </div>
-    <div id="vocabStats" class="vocab-stats" style="margin-top:12px; display:none;">
-      <div style="font-weight:700; margin-bottom:8px;">학습 통계</div>
-      <div>오늘 입력한 단어: <span id="todayAdded">0</span></div>
-      <div>오늘 외운 단어: <span id="todayMemorized">0</span></div>
-      <div>오늘 시험 본 단어: <span id="todayQuiz">0</span> (정답 <span id="todayCorrect">0</span>)</div>
+
+    <!-- 검색 · 단어 추가 · 보기 설정 (관리자 모드에서 학생 미선택 시 숨김 제어에 id 사용) -->
+    <div id="vocabAddWordSection" class="vp-controls" style="display:none;">
+      <div class="vp-toolbar">
+        <input type="text" id="vocabSearchInput" placeholder="🔍 단어 또는 뜻 검색" oninput="vocabOnSearchInput(this)" autocomplete="off">
+        <button type="button" id="btnVocabAdd" class="vp-btn vp-btn-primary">+ 단어 추가</button>
+        <button type="button" id="btnVocabStudy" class="vp-btn vp-btn-study">📝 시험</button>
+      </div>
+      <div class="vp-filters">
+        <div class="vp-tabs" id="vpTabs">
+          <button type="button" class="vp-btn vp-tab on" data-filter="all">전체 <span id="vpCntAll">0</span></button>
+          <button type="button" class="vp-btn vp-tab" data-filter="learning">외우는 중 <span id="vpCntLearning">0</span></button>
+          <button type="button" class="vp-btn vp-tab" data-filter="done">외운 단어 <span id="vpCntDone">0</span></button>
+        </div>
+        <div class="vp-opts">
+          <select id="vpSort" aria-label="정렬">
+            <option value="recent">최근 추가순</option>
+            <option value="old">오래된순</option>
+            <option value="abc">알파벳순</option>
+          </select>
+          <button type="button" class="vp-btn vp-toggle" data-hide="meaning">뜻 가리기</button>
+          <button type="button" class="vp-btn vp-toggle" data-hide="word">단어 가리기</button>
+        </div>
+      </div>
     </div>
 
-    <div id="vocabAddWordSection" style="display:none; margin-top:16px;">
-      <h3>단어 추가</h3>
+    <!-- 단어 시험: 설정 → 문제 → 결과 (vocab.js의 '단어 시험' 부분) -->
+    <div id="vocabStudy" class="vt" style="display:none;"></div>
 
-      <div class="vocab-row">
-        <label for="newWord">단어(영어)</label>
-        <input type="text" id="newWord" placeholder="예: assume">
-        <button id="btnDict" type="button" class="btn-ghost">네이버 사전 검색</button>
-      </div>
-
-      <div id="newWordStatus" style="font-size:14px; margin-top:6px; margin-bottom:4px;"></div>
-      
-
-      <div class="vocab-row" style="margin-top:8px;">
-        <label for="newMeaning">뜻(한글)</label>
-        <input type="text" id="newMeaning" placeholder="예: 가정하다, 추정하다">
-        <button id="btnVocabSave" type="button">단어 저장</button>
-      </div>
-
-      <div id="submitStatus" style="margin-top:10px; font-size:14px;"></div>
-
-      <div id="dictContainer" style="margin-top: 12px; display: none;">
-        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-          <div style="font-weight:700;">네이버 영어사전</div>
-          <button id="dictToggleBtn" type="button" class="btn-ghost" style="width:auto; padding:10px 12px;">사전 최소화</button>
-        </div>
-        <div id="dictFrameWrap" style="width: 100%; height: 400px; border: 1px solid #d1d5db; margin-top:8px; border-radius:10px; transition: height 0.2s;">
-          <iframe id="dictFrame" style="width: 100%; height: 100%; border: none;"></iframe>
-        </div>
-      </div>
-      <div style="display:flex; gap:8px; margin-top:10px;">
-        <button type="button" class="btn-ghost" style="flex:1; padding:12px 0; font-size:14px; font-weight:bold; border-radius:8px;" onclick="fetchDatamuse('syn', true)">유의어</button>
-        <button type="button" class="btn-ghost" style="flex:1; padding:12px 0; font-size:14px; font-weight:bold; border-radius:8px;" onclick="fetchDatamuse('ant', true)">반의어</button>
-        <button type="button" class="btn-ghost" style="flex:1; padding:12px 0; font-size:14px; font-weight:bold; border-radius:8px;" onclick="fetchDatamuse('trg', true)">혼동어휘</button>
-      </div>
-      <div id="datamuseResultMain" style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px; font-size:13px; color:#4b5563;"></div>
-    </div>
-
-    <button id="btnToggleVocabTest" type="button" class="btn-ghost" style="margin-top: 16px;width: 100%;">단어 시험 메뉴 열기 ▼</button>
-
-    <div id="vocabTestInputs" style="margin-top: 16px; display:none;">
-      <h3>시험</h3>
-      <div class="row">
-        <div>
-          <label>시작 번호</label>
-          <input type="number" id="startNum" min="1" placeholder="예: 1">
-        </div>
-        <div>
-          <label>끝 번호</label>
-          <input type="number" id="endNum" min="1" placeholder="예: 50">
-        </div>
-      </div>
-      <div class="row">
-        <div>
-          <label>출제 개수</label>
-          <input type="number" id="quizCount" min="1" value="10">
-        </div>
-        <div style="display:flex; align-items:flex-end; gap:10px;">
-          <button id="btnTestE2K" type="button">영어 → 뜻 시험</button>
-          <button id="btnTestK2E" type="button" class="btn-ghost">뜻 → 영어 시험</button>
-        </div>
-      </div>
-
-      <button id="showListBtn" type="button" class="btn-ghost" style="display:none;">목록 다시 보기</button>
-    </div>
-
-    <div id="info" style="margin-top:12px;"></div>
-    <div style="margin-top:10px; margin-bottom:6px;">
-      <input type="text" id="vocabSearchInput" 
-             placeholder="🔍 단어 또는 뜻 검색 (한글/영어)" 
-             oninput="vocabOnSearchInput(this)"
-             style="width:100%; padding:10px; border:2px solid #e5e7eb; border-radius:8px; font-size:16px;">
-    </div>
-    <div id="wordList" style="margin-top:12px;"></div>
+    <div id="info"></div>
+    <div id="wordList" class="vw-list" style="margin-top:12px;"></div>
     <div id="quiz" style="margin-top:12px;"></div>
     <div id="score" style="margin-top:10px; font-weight:700;"></div>
   </div>
