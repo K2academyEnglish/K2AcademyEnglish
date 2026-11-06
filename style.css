@@ -1440,3 +1440,12 @@
 #quizPage .online-box .op-font-bar button.op-font-btn:hover { background: #f1f5f9 !important; }
 #quizPage .online-box .op-font-bar button.op-font-reset { font-weight: normal; margin-left: 4px !important; }
 #quizPage .online-box .op-font-bar button.op-font-reset.active { background: #eff6ff !important; border-color: #2b6cb0 !important; color: #1e40af !important; }
+
+/* [휴대폰] 로그인 첫 화면: 가상 키보드에 가리지 않도록 가운데 대신 화면 위에서 20% 지점에 배치 */
+@media screen and (max-width: 720px) {
+  body > #startPage.active {
+    justify-content: flex-start;
+    padding-top: 20vh !important;
+    padding-top: 20svh !important; /* 키보드가 열려도 위치가 흔들리지 않도록 작은 화면 높이 기준 */
+  }
+}
