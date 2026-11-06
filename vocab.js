@@ -691,112 +691,6 @@ function closeNavDrawer() {
   if(o) o.style.display = 'none'; // 배경 어두운 것 제거
 }
 
-function openVocabDrawer(){
-   const d = document.getElementById('vocabDrawer');
-  const o = document.getElementById('drawerOverlay');
-  if (d) d.classList.add('open');
-  if (o) o.style.display = 'block';
-
-  // 검색창 초기화
-  const searchInp = document.getElementById('drawerSearch');
-  if (searchInp) searchInp.value = '';
-  
-  const list = document.getElementById('drawerList');
-  if (list) list.innerHTML = ''; // 기존 목록 초기화
-
-  // ▼ [수정] 주석 처리했던 데이터 로딩 함수를 다시 실행합니다.
-  drawerEnsureLoaded(); 
-}
-
-function closeVocabDrawer(){
-  const d = document.getElementById('vocabDrawer');
-  const o = document.getElementById('drawerOverlay');
-  if (d) d.classList.remove('open');
-  if (o) o.style.display = 'none';
-}
-
-function drawerEnsureLoaded(){
-  if (DRAWER_DICT_ONLY) return; 
-  const st = document.getElementById('drawerStatus');
-  if (!CURRENT_USER) return;
-  vocabInitTypoOnce();
-
-  // ★ 수정: VOCAB_CACHE가 있으면 그것을 사용 (메인 단어장과 공유)
-  if (VOCAB_CACHE && Array.isArray(VOCAB_CACHE)) {
-    if (st) st.textContent = '총 ' + VOCAB_CACHE.length + '개';
-    drawerRenderList(VOCAB_CACHE.slice(0, 50));
-    return;
-  }
-
-  if (!hasGsRun()) { if (st) st.textContent = '서버 연결 오류'; return; }
-  if (st) st.textContent = '불러오는 중...';
-
-  google.script.run.withSuccessHandler(function(data){
-    // ★ 수정: 받아온 데이터를 전역 캐시에 저장
-    VOCAB_CACHE = Array.isArray(data) ? data : [];
-    
-    if (st) st.textContent = '총 ' + VOCAB_CACHE.length + '개';
-    drawerRenderList(VOCAB_CACHE.slice(0, 50));
-    
-    // 메인 단어장 화면이 열려있다면 거기도 갱신해줌 (선택사항)
-    if(document.getElementById('vocabPage').classList.contains('active')){
-        renderVocabTableFromData(VOCAB_CACHE);
-    }
-  }).getVocabulary(CURRENT_USER);
-}
-
-function drawerFilterList(q){
-  q = String(q||'').trim().toLowerCase();
-  if (!q){
-    drawerRenderList(vocabList().slice(0, 50));
-    return;
-  }
-  const filtered = vocabList().filter(x=>{
-    const w = String(x.word||'').toLowerCase();
-    const m = String(x.meaning||'').toLowerCase();
-    return w.includes(q) || m.includes(q);
-  }).slice(0, 80);
-  drawerRenderList(filtered);
-}
-
-function drawerRenderList(rows){
-  const box = document.getElementById('drawerList');
-  if (!box) return;
-  box.innerHTML = '';
-
-  if (!rows || !rows.length){
-    box.innerHTML = '<div class="drawer-muted">검색 결과가 없습니다.</div>';
-    return;
-  }
-
-  rows.forEach(r=>{
-    const item = document.createElement('div');
-    item.className = 'drawer-item';
-    item.innerHTML = '<div class="w">' + escapeHTML(r.word||'') + '</div>' + '<div class="m">' + escapeHTML(r.meaning||'') + '</div>' + '<div class="mini">' + '<button type="button" class="ghost">사전</button>' + '<button type="button" class="ghost">입력칸에 넣기</button>' + '</div>';
-
-    const btnDict = item.querySelectorAll('button')[0];
-    const btnFill = item.querySelectorAll('button')[1];
-
-    btnDict.addEventListener('click', ()=>{
-      const w = String(r.word||'').trim();
-      const dictInput = document.getElementById('drawerDictWord');
-      if (dictInput) dictInput.value = w;
-      drawerSearchDict(w);
-    });
-
-    btnFill.addEventListener('click', ()=>{
-      const w = String(r.word||'').trim();
-      const m = String(r.meaning||'').trim();
-      const wEl = document.getElementById('drawerWord');
-      const mEl = document.getElementById('drawerMeaning');
-if (wEl) wEl.value = w;
-      if (mEl) mEl.value = m;
-    });
-
-    box.appendChild(item);
-  });
-}
-
 function fetchDatamuse(type, isMain) {
   const inputId = isMain ? 'newWord' : 'drawerDictWord';
   const resultId = isMain ? 'datamuseResultMain' : 'datamuseResult';
@@ -920,27 +814,6 @@ function fetchDatamuse(type, isMain) {
     });
 }
 
-function drawerSearchDict(word){
-  const w = String(word||'').trim();
-if (!w) return;
-
-  // 1. 네이버 사전 아이프레임 업데이트
-  const iframe = document.getElementById('drawerDictFrame');
-  if (iframe) iframe.src = 'https://en.dict.naver.com/#/search?query=' + encodeURIComponent(w);
-
-  // 2. [추가된 기능] 사전 검색한 단어를 '빠른 저장' 칸에 자동으로 넣어줍니다.
-  const saveWordInput = document.getElementById('drawerWord');
-  const saveMeaningInput = document.getElementById('drawerMeaning');
-
-  if (saveWordInput) {
-     saveWordInput.value = w; // 단어 칸 자동 채움
-  }
-  if (saveMeaningInput) {
-     saveMeaningInput.value = ''; // 뜻 칸은 비워줌
-     saveMeaningInput.focus();    // 바로 뜻을 입력할 수 있게 커서 이동
-  }
-}
-
 let _drawerNewWordTimer = null;
 function drawerCheckDuplicateInput(el) {
     clearTimeout(_drawerNewWordTimer);
@@ -996,65 +869,395 @@ function drawerCheckDuplicateInput(el) {
     }, 300);
 }
 
-// ▼ [누락되었던 함수 복구] 미니 단어장에서 '저장' 버튼을 눌렀을 때 실행되는 함수
-function drawerSaveWord(){
+
+
+/* =====================================================================
+ * 미니 단어장 (문제 풀이 중) — 오른쪽 고정 패널(PC) / 아래 시트(휴대폰)
+ * - 지문 단어 더블클릭/길게 누르기 → 단어 카드(추천 뜻 → 저장)
+ * - 저장은 화면에 즉시 반영하고 서버 저장은 뒤에서 순서대로 처리
+ * - '이번에 저장한 단어'는 학생별로 이 탭(sessionStorage)에 보관
+ * ===================================================================== */
+let VOCAB_SAVE_CHAIN = Promise.resolve();
+const MINI_DICT_URL = 'https://en.dict.naver.com/#/search?query=';
+const MEANING_SUGGEST_CACHE = new Map();
+
+function _miniWordsKey() { return 'k2_mini_words:' + ((CURRENT_USER && CURRENT_USER.id) || 'guest'); }
+function getMiniWords() {
+  try { return JSON.parse(sessionStorage.getItem(_miniWordsKey()) || '[]'); } catch (e) { return []; }
+}
+function setMiniWords(list) {
+  try { sessionStorage.setItem(_miniWordsKey(), JSON.stringify(list.slice(0, 200))); } catch (e) {}
+}
+function rememberMiniWord(word, meaning) {
+  const list = getMiniWords().filter(x => x.word !== word);
+  list.unshift({ word: word, meaning: meaning, ts: Date.now() });
+  setMiniWords(list);
+  renderMiniWordList();
+}
+
+// 서버 순서 보장 저장 (실패 시 안내)
+function _queueVocabServer(funcName, args, failMsg) {
+  VOCAB_SAVE_CHAIN = VOCAB_SAVE_CHAIN
+    .then(() => gsCall(funcName, args))
+    .then(res => { if (typeof res === 'string' && res.indexOf('오류') === 0) throw res; })
+    .catch(err => { showToast((failMsg || '단어 저장 실패') + ': ' + escapeHTML(String(err)), 'error'); });
+}
+
+/**
+ * 단어 빠른 저장 (미니 단어장·단어 카드 공통)
+ * 반환: { ok, status:'new'|'merged'|'exists', word, meaning, msg }
+ * 서버(addWordToFormAndSheet)가 중복 단어의 뜻 합치기를 직접 처리하므로 항상 같은 함수로 보냅니다.
+ */
+function vocabQuickSave(rawWord, rawMeaning) {
+  const user = CURRENT_USER;
+  if (!user || !user.id) return { ok: false, msg: '로그인이 필요합니다.' };
+  const word = String(vocabCorrectTypo(String(rawWord || '').trim()) || '').trim().toLowerCase();
+  const inputMeanings = String(rawMeaning || '').split(',').map(m => m.trim()).filter(Boolean);
+  if (!word || !inputMeanings.length) return { ok: false, msg: '단어와 뜻을 모두 입력해주세요.' };
+
+  let merged = inputMeanings.join(', '), status = 'new';
+  if (Array.isArray(VOCAB_CACHE)) {
+    const dup = VOCAB_CACHE.find(x => String(x.word || '').toLowerCase() === word);
+    if (dup) {
+      const existing = String(dup.meaning || '').split(',').map(m => m.trim()).filter(Boolean);
+      const lowerSet = new Set(existing.map(m => m.toLowerCase()));
+      const added = inputMeanings.filter(m => !lowerSet.has(m.toLowerCase()));
+      if (!added.length) {
+        rememberMiniWord(word, dup.meaning);
+        return { ok: true, status: 'exists', word: word, meaning: dup.meaning };
+      }
+      merged = existing.concat(added).join(', ');
+      dup.meaning = merged;
+      status = 'merged';
+    } else {
+      VOCAB_CACHE.push({ number: VOCAB_CACHE.length + 1, word: word, meaning: merged, memorized: false });
+    }
+  }
+  rememberMiniWord(word, merged);
+  _queueVocabServer('addWordToFormAndSheet', [user, word, inputMeanings.join(', ')], '단어 저장 실패');
+  return { ok: true, status: status, word: word, meaning: merged };
+}
+
+// 이번에 저장한 단어 수정 (단어·뜻 전체 교체)
+function vocabQuickEdit(oldWord, newWordRaw, newMeaningRaw) {
+  const user = CURRENT_USER;
+  const newWord = String(newWordRaw || '').trim().toLowerCase();
+  const newMeaning = String(newMeaningRaw || '').split(',').map(m => m.trim()).filter(Boolean).join(', ');
+  if (!user || !newWord || !newMeaning) return false;
+  if (Array.isArray(VOCAB_CACHE)) {
+    const item = VOCAB_CACHE.find(x => String(x.word || '').toLowerCase() === oldWord);
+    if (item) { item.word = newWord; item.meaning = newMeaning; }
+  }
+  setMiniWords(getMiniWords().map(x => x.word === oldWord ? { word: newWord, meaning: newMeaning, ts: x.ts } : x));
+  renderMiniWordList();
+  _queueVocabServer('editWord', [user, oldWord, newWord, newMeaning], '단어 수정 실패');
+  return true;
+}
+
+function renderMiniWordList() {
+  const box = document.getElementById('drawerSessionList');
+  const cnt = document.getElementById('drawerSessionCount');
+  if (!box) return;
+  const list = getMiniWords();
+  if (cnt) cnt.textContent = list.length;
+  if (!list.length) {
+    box.innerHTML = '<div class="drawer-muted">아직 저장한 단어가 없어요.</div>';
+    return;
+  }
+  box.innerHTML = list.map(x => `
+    <div class="vd-item" data-word="${escapeHTML(x.word).replace(/"/g, '&quot;')}">
+      <div class="vd-item-main"><b>${escapeHTML(x.word)}</b><span>${escapeHTML(x.meaning)}</span></div>
+      <button type="button" class="vd-btn vd-btn-mini" data-act="edit">수정</button>
+    </div>`).join('');
+}
+
+function _onMiniListClick(e) {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const item = btn.closest('.vd-item');
+  const word = item ? item.dataset.word : '';
+  if (!item) return;
+  if (btn.dataset.act === 'edit') {
+    const cur = getMiniWords().find(x => x.word === word) || { word: word, meaning: '' };
+    item.classList.add('editing');
+    item.innerHTML = `
+      <div class="vd-edit">
+        <input type="text" class="vd-edit-word" value="${escapeHTML(cur.word).replace(/"/g, '&quot;')}">
+        <input type="text" class="vd-edit-meaning" value="${escapeHTML(cur.meaning).replace(/"/g, '&quot;')}">
+        <div class="vd-edit-actions">
+          <button type="button" class="vd-btn vd-btn-ghost" data-act="cancel">취소</button>
+          <button type="button" class="vd-btn vd-btn-primary" data-act="save">저장</button>
+        </div>
+      </div>`;
+  } else if (btn.dataset.act === 'cancel') {
+    renderMiniWordList();
+  } else if (btn.dataset.act === 'save') {
+    const w = item.querySelector('.vd-edit-word').value;
+    const m = item.querySelector('.vd-edit-meaning').value;
+    if (!vocabQuickEdit(word, w, m)) showToast('단어와 뜻을 모두 입력해주세요.', 'error');
+    else showToast('단어를 수정했어요.', 'info');
+  }
+}
+
+// 단어장 원본(중복 확인용)이 없으면 뒤에서 한 번 받아 둡니다.
+function drawerEnsureLoaded() {
+  if (!CURRENT_USER || Array.isArray(VOCAB_CACHE)) return;
+  if (typeof VOCAB_PREFETCH !== 'undefined' && VOCAB_PREFETCH) return;
+  const user = CURRENT_USER;
+  gsCall('getVocabulary', [user]).then(data => {
+    if (CURRENT_USER === user && !Array.isArray(VOCAB_CACHE) && Array.isArray(data)) VOCAB_CACHE = data;
+  }).catch(() => {});
+}
+
+function isVocabDrawerOpen() {
+  const d = document.getElementById('vocabDrawer');
+  return !!(d && d.classList.contains('open'));
+}
+function openVocabDrawer() {
+  const d = document.getElementById('vocabDrawer');
+  if (!d) return;
+  d.classList.add('open');
+  document.body.classList.add('vocab-dock-open');
+  renderMiniWordList();
+  drawerEnsureLoaded();
+  vocabInitTypoOnce();
+}
+function closeVocabDrawer() {
+  const d = document.getElementById('vocabDrawer');
+  if (d) d.classList.remove('open');
+  document.body.classList.remove('vocab-dock-open');
+  closeDrawerDict();
+}
+function toggleVocabDrawer() { isVocabDrawerOpen() ? closeVocabDrawer() : openVocabDrawer(); }
+
+// 사전: PC는 미니 단어장 안에서, 휴대폰은 새 탭으로 크게 엽니다.
+function openDictionary(word) {
+  const w = String(word || '').trim();
+  if (!w) { showToast('사전에서 찾을 단어를 입력하세요.', 'info'); return; }
+  const url = MINI_DICT_URL + encodeURIComponent(w);
+  if (window.innerWidth < 821) { window.open(url, '_blank', 'noopener'); return; }
+  if (!isVocabDrawerOpen()) openVocabDrawer();
+  const wrap = document.getElementById('drawerDictWrap');
+  const frame = document.getElementById('drawerDictFrame');
+  const title = document.getElementById('drawerDictTitle');
+  if (title) title.textContent = '네이버 사전: ' + w;
+  if (frame) frame.src = url;
+  if (wrap) wrap.style.display = 'block';
+}
+function closeDrawerDict() {
+  const wrap = document.getElementById('drawerDictWrap');
+  const frame = document.getElementById('drawerDictFrame');
+  if (wrap) wrap.style.display = 'none';
+  if (frame && frame.src && frame.src !== 'about:blank') frame.src = 'about:blank';
+}
+// 기존 호출부 호환 (fetchDatamuse 등)
+function drawerSearchDict(word) {
+  const wEl = document.getElementById('drawerWord');
+  if (wEl && word) wEl.value = String(word).trim();
+  openDictionary(word);
+}
+
+// 미니 단어장 '저장' 버튼
+function drawerSaveWord() {
   const wEl = document.getElementById('drawerWord');
   const mEl = document.getElementById('drawerMeaning');
   const st = document.getElementById('drawerSaveStatus');
+  const r = vocabQuickSave(wEl ? wEl.value : '', mEl ? mEl.value : '');
+  if (!r.ok) { if (st) st.textContent = r.msg; return; }
+  if (st) {
+    st.textContent = r.status === 'exists' ? `'${r.word}'은(는) 이미 같은 뜻으로 저장되어 있어요.`
+                   : r.status === 'merged' ? `'${r.word}'에 새 뜻을 추가했어요.`
+                   : `'${r.word}' 저장했어요.`;
+    clearTimeout(drawerSaveWord._t);
+    drawerSaveWord._t = setTimeout(() => { st.textContent = ''; }, 2500);
+  }
+  if (wEl) wEl.value = '';
+  if (mEl) mEl.value = '';
+  const sBox = document.getElementById('drawerWordStatus');
+  if (sBox) sBox.innerHTML = '';
+  if (wEl) wEl.focus();
+}
 
-  let word = wEl ? wEl.value.trim() : '';
-  const meaning = mEl ? mEl.value.trim() : '';
+function vocabResetMiniDrawer() {
+  closeVocabDrawer();
+  hideWordPopover();
+  ['drawerWord', 'drawerMeaning'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['drawerWordStatus', 'drawerSaveStatus', 'drawerSessionList'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+  const cnt = document.getElementById('drawerSessionCount'); if (cnt) cnt.textContent = '0';
+}
 
-  if(!word || !meaning){
-    if(st) st.textContent = '단어와 뜻을 모두 입력해주세요.';
+/* ---------------- 지문 단어 카드 (더블클릭 / 길게 누르기) ---------------- */
+const WORD_PICK_RE = /^[A-Za-z][A-Za-z'\-]*(?: [A-Za-z][A-Za-z'\-]*){0,3}$/;
+let _wordPickTimer = null;
+let _wordPopRange = null;
+
+function fetchMeaningSuggestions(word) {
+  const key = word.toLowerCase();
+  if (MEANING_SUGGEST_CACHE.has(key)) return MEANING_SUGGEST_CACHE.get(key);
+  const p = gsCall('getWordTranslation', [key])
+    .then(t => String(t || '').split(',').map(x => x.trim()).filter(Boolean))
+    .catch(() => []);
+  MEANING_SUGGEST_CACHE.set(key, p);
+  return p;
+}
+
+function _ensureWordPopover() {
+  let pop = document.getElementById('wordPopover');
+  if (pop) return pop;
+  pop = document.createElement('div');
+  pop.id = 'wordPopover';
+  pop.className = 'word-popover no-print';
+  pop.setAttribute('role', 'dialog');
+  pop.innerHTML = `
+    <div class="wp-head">
+      <input type="text" class="wp-word" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="단어">
+      <button type="button" class="wp-btn wp-close" aria-label="닫기">✕</button>
+    </div>
+    <div class="wp-status"></div>
+    <div class="wp-chips"></div>
+    <input type="text" class="wp-meaning" placeholder="뜻 (추천 뜻을 누르거나 직접 입력)" autocomplete="off">
+    <div class="wp-actions">
+      <button type="button" class="wp-btn wp-dict">사전</button>
+      <button type="button" class="wp-btn wp-save">단어장에 저장</button>
+    </div>`;
+  document.body.appendChild(pop);
+
+  pop.addEventListener('mousedown', e => e.stopPropagation());
+  pop.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+  pop.querySelector('.wp-close').addEventListener('click', hideWordPopover);
+  pop.querySelector('.wp-dict').addEventListener('click', () => openDictionary(pop.querySelector('.wp-word').value));
+  pop.querySelector('.wp-save').addEventListener('click', _saveFromPopover);
+  pop.querySelector('.wp-meaning').addEventListener('keydown', e => { if (e.key === 'Enter') _saveFromPopover(); });
+  let editTimer = null;
+  pop.querySelector('.wp-word').addEventListener('input', e => {
+    clearTimeout(editTimer);
+    editTimer = setTimeout(() => _fillWordPopover(e.target.value.trim()), 400);
+  });
+  pop.querySelector('.wp-chips').addEventListener('click', e => {
+    const chip = e.target.closest('.wp-chip');
+    if (!chip) return;
+    const inp = pop.querySelector('.wp-meaning');
+    const parts = inp.value.split(',').map(x => x.trim()).filter(Boolean);
+    const m = chip.dataset.m;
+    const idx = parts.indexOf(m);
+    if (idx >= 0) parts.splice(idx, 1); else parts.push(m);
+    inp.value = parts.join(', ');
+    chip.classList.toggle('on', idx < 0);
+  });
+  return pop;
+}
+
+function _fillWordPopover(word) {
+  const pop = _ensureWordPopover();
+  const status = pop.querySelector('.wp-status');
+  const chips = pop.querySelector('.wp-chips');
+  pop.querySelector('.wp-meaning').value = '';
+  chips.innerHTML = '';
+  if (!word) { status.textContent = ''; return; }
+  const lower = String(vocabCorrectTypo(word) || word).toLowerCase();
+  const dup = Array.isArray(VOCAB_CACHE) ? VOCAB_CACHE.find(x => String(x.word || '').toLowerCase() === lower) : null;
+  status.innerHTML = dup
+    ? `📘 이미 저장된 단어: <b>${escapeHTML(dup.meaning)}</b><br><span class="wp-sub">새 뜻을 고르면 추가돼요.</span>`
+    : '<span class="wp-sub">추천 뜻을 불러오는 중...</span>';
+  fetchMeaningSuggestions(lower).then(list => {
+    if (pop.querySelector('.wp-word').value.trim().toLowerCase() !== word.toLowerCase()) return; // 그 사이 단어 변경
+    if (!dup) status.innerHTML = list.length ? '<span class="wp-sub">추천 뜻을 눌러 고르세요.</span>' : '<span class="wp-sub">추천 뜻이 없어요. 직접 입력해 주세요.</span>';
+    chips.innerHTML = list.map(m => `<button type="button" class="wp-chip" data-m="${escapeHTML(m).replace(/"/g, '&quot;')}">${escapeHTML(m)}</button>`).join('');
+  });
+}
+
+function _positionWordPopover() {
+  const pop = document.getElementById('wordPopover');
+  if (!pop || pop.style.display === 'none') return;
+  const vv = window.visualViewport;
+  const viewH = vv ? vv.height : window.innerHeight;
+  const viewTop = vv ? vv.offsetTop : 0;
+  if (window.innerWidth < 821) {
+    // 휴대폰: 화면 아래쪽 카드 (키보드가 올라오면 그 위로)
+    pop.classList.add('wp-sheet');
+    pop.style.left = ''; pop.style.top = '';
+    pop.style.bottom = Math.max(8, window.innerHeight - (viewH + viewTop) + 8) + 'px';
     return;
   }
-  
-  if(st) st.textContent = '저장 중...';
+  pop.classList.remove('wp-sheet');
+  pop.style.bottom = '';
+  if (!_wordPopRange) return;
+  const rect = _wordPopRange.getBoundingClientRect();
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  let top = rect.bottom + 8;
+  if (top + h > viewH - 8) top = rect.top - h - 8;
+  let left = rect.left + rect.width / 2 - w / 2;
+  left = Math.min(Math.max(8, left), window.innerWidth - w - 8);
+  pop.style.top = Math.max(8, top) + 'px';
+  pop.style.left = left + 'px';
+}
 
-  // 오타 보정
-  word = vocabCorrectTypo(word);
+function showWordPopover(word, range) {
+  const pop = _ensureWordPopover();
+  _wordPopRange = range ? range.cloneRange() : null;
+  pop.querySelector('.wp-word').value = word;
+  pop.style.display = 'block';
+  _fillWordPopover(word);
+  _positionWordPopover();
+  vocabInitTypoOnce();
+  drawerEnsureLoaded();
+}
+// 카드를 닫을 때 지문의 단어 선택도 해제합니다(휴대폰에서 선택이 남아 카드가 다시 뜨는 것 방지).
+function hideWordPopover() {
+  const pop = document.getElementById('wordPopover');
+  const wasOpen = pop && pop.style.display !== 'none';
+  if (pop) pop.style.display = 'none';
+  _wordPopRange = null;
+  if (wasOpen) {
+    try {
+      const sel = window.getSelection();
+      const node = sel && sel.anchorNode;
+      const el = node && (node.nodeType === 1 ? node : node.parentElement);
+      if (el && el.closest('#quizPage')) sel.removeAllRanges();
+    } catch (e) {}
+  }
+}
 
-  // 중복 확인 로직
-  const dup = vocabList().find(x => String(x.word||'').toLowerCase() === word.toLowerCase());
-  
-  if(dup){
-        const existing = String(dup.meaning||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
-        // 이미 있는 뜻이면 병합하지 않음
-        const uniqueMeanings = new Set([...existing, meaning.toLowerCase()]);
-        const merged = Array.from(uniqueMeanings).join(', ');
+function _saveFromPopover() {
+  const pop = _ensureWordPopover();
+  const word = pop.querySelector('.wp-word').value;
+  const meaning = pop.querySelector('.wp-meaning').value;
+  const r = vocabQuickSave(word, meaning);
+  if (!r.ok) { showToast(r.msg, 'error'); return; }
+  showToast(r.status === 'exists' ? `'${escapeHTML(r.word)}'은(는) 이미 저장되어 있어요.`
+          : r.status === 'merged' ? `'${escapeHTML(r.word)}'에 새 뜻을 추가했어요.`
+          : `'${escapeHTML(r.word)}' 단어장에 저장했어요.`, r.status === 'exists' ? 'info' : 'success');
+  hideWordPopover();
+}
 
-        if(st) st.textContent = '이미 있는 단어라 뜻을 병합해 저장합니다.';
-        
-        google.script.run.withSuccessHandler(function(){
-          if(st) st.textContent = '저장 완료!';
-          // 캐시 갱신 및 목록 다시 로드
-          VOCAB_CACHE = null;
-          drawerEnsureLoaded();
-          // 입력창 초기화
-          if(wEl) wEl.value='';
-          if(mEl) mEl.value='';
-          const sBox = document.getElementById('drawerWordStatus');
-          if(sBox) sBox.innerHTML='';
-          setTimeout(()=>{ if(st) st.textContent=''; }, 2000);
-        }).withFailureHandler(function(err){
-          if(st) st.textContent = '오류: ' + err;
-        }).updateWordMeaning(CURRENT_USER, word, merged);
-        return;
-      }
+// 지문(문제 풀이 화면) 안에서 영어 단어가 선택되면 단어 카드를 띄웁니다.
+function _checkWordSelection() {
+  if (!CURRENT_USER || CURRENT_USER.role === 'manager') return;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+  const text = sel.toString().replace(/[’‘]/g, "'").trim().replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, '');
+  if (!text || text.length > 40 || !WORD_PICK_RE.test(text)) return;
+  const node = sel.anchorNode;
+  const el = node && (node.nodeType === 1 ? node : node.parentElement);
+  if (!el || !el.closest('#quizPage') || el.closest('input, textarea, button, .omr-options-wrap, .op-opt, .op-font-bar')) return;
+  showWordPopover(text, sel.getRangeAt(0));
+}
 
-      // 새 단어 저장 로직 추가
-      if(st) st.textContent = '새 단어를 저장 중...';
-      google.script.run.withSuccessHandler(function(){
-        if(st) st.textContent = '저장 완료!';
-        VOCAB_CACHE = null;
-        drawerEnsureLoaded();
-        if(wEl) wEl.value='';
-        if(mEl) mEl.value='';
-        const sBox = document.getElementById('drawerWordStatus');
-        if(sBox) sBox.innerHTML='';
-        setTimeout(()=>{ if(st) st.textContent=''; }, 2000);
-      }).withFailureHandler(function(err){
-        if(st) st.textContent = '오류: ' + err;
-      }).addWordToFormAndSheet(CURRENT_USER, word, meaning);
-    }
+function initPassageWordPicker() {
+  const schedule = (delay) => { clearTimeout(_wordPickTimer); _wordPickTimer = setTimeout(_checkWordSelection, delay); };
+  document.addEventListener('mouseup', e => { if (!e.target.closest || !e.target.closest('#wordPopover')) schedule(200); });
+  document.addEventListener('touchend', () => schedule(450));
+  // 휴대폰에서 길게 눌러 선택 범위를 조정할 때
+  document.addEventListener('selectionchange', () => { if (window.innerWidth < 821) schedule(600); });
+  // 카드 밖을 누르면 닫기
+  const outside = e => { if (!e.target.closest || !e.target.closest('#wordPopover')) hideWordPopover(); };
+  document.addEventListener('mousedown', outside);
+  document.addEventListener('touchstart', outside, { passive: true });
+  window.addEventListener('scroll', _positionWordPopover, { passive: true });
+  window.addEventListener('resize', _positionWordPopover);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', _positionWordPopover);
+  const list = document.getElementById('drawerSessionList');
+  if (list) list.addEventListener('click', _onMiniListClick);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hideWordPopover(); });
+}
+initPassageWordPicker();
