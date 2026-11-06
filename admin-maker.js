@@ -595,7 +595,7 @@ function renderInventoryTable() {
   tbody.innerHTML = '';
 
   // ★ [추가] 헤더 정렬 아이콘 갱신
-  ['status', 'assign', 'wrong', 'source', 'type', 'difficulty', 'number'].forEach(col => {
+  ['status', 'lastTs', 'assign', 'wrong', 'source', 'type', 'difficulty', 'number'].forEach(col => {
       const span = document.getElementById('sort_' + col);
       if (span) {
           span.innerHTML = (invSortCol === col) ? (invSortAsc ? '▲' : '▼') : '<span style="opacity:0.3">↕</span>';
@@ -711,7 +711,7 @@ function renderInventoryTable() {
 
   if (filtered.length === 0) {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td colspan="7" style="padding:20px; text-align:center;">조건에 맞는 문제가 없습니다.</td>`;
+      tr.innerHTML = `<td colspan="9" style="padding:20px; text-align:center;">조건에 맞는 문제가 없습니다.</td>`;
       tbody.appendChild(tr);
       updateInvCount();
       return;
@@ -1550,7 +1550,6 @@ if (btnPrintChecked) {
             if (!groups[gKey]) groups[gKey] = [];
             groups[gKey].push(qid);
         });
-        const inOrder = document.getElementById('chkInOrder') ? document.getElementById('chkInOrder').checked : false;
         const cartOrder = document.getElementById('chkCartOrder') ? document.getElementById('chkCartOrder').checked : false;
         const groupKeys = Object.keys(groups);
 
@@ -1561,20 +1560,12 @@ if (btnPrintChecked) {
                 const qidB = groups[b][0];
                 return cartArray.indexOf(qidA) - cartArray.indexOf(qidB);
             });
-        } else if (inOrder) {
-            groupKeys.sort((a, b) => {
-                const rowA = INVENTORY_DATA.find(r => (r.groupHash || r.qid) === a);
-                const rowB = INVENTORY_DATA.find(r => (r.groupHash || r.qid) === b);
-                if (!rowA || !rowB) return 0;
-                const numA = parseInt(String(rowA.number || '').replace(/[^0-9]/g, ''), 10) || 0;
-                const numB = parseInt(String(rowB.number || '').replace(/[^0-9]/g, ''), 10) || 0;
-                if (numA !== numB) return numA - numB;
-                const metaA = [rowA.year, rowA.month, rowA.number].join('');
-                const metaB = [rowB.year, rowB.month, rowB.number].join('');
-                return metaA.localeCompare(metaB);
-            });
         } else {
-            groupKeys.sort(() => Math.random() - 0.5);
+            // 기본: 지문 세트 단위 무작위 (Fisher-Yates)
+            for (let i = groupKeys.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [groupKeys[i], groupKeys[j]] = [groupKeys[j], groupKeys[i]];
+            }
         }
         let qids = [];
         groupKeys.forEach(k => { qids = qids.concat(groups[k]); });
@@ -1601,6 +1592,7 @@ if (btnPrintChecked) {
             renderQuestionsForPrint(res.qs, customTitle, null, printStudentName);
             SELECTED_MULTI_STUDENTS = []; 
             updateStudentDisplayUI();
+            resetMakerAfterAssign();
         }).withFailureHandler(err => {
             if(loadEl) loadEl.classList.remove('active');
             showCustomAlert('출제 실패: ' + err);
@@ -2155,15 +2147,17 @@ function invalidateQuestionMeta() {
 }
 
 // 서버 getAdminQuestionInventory와 같은 모양의 행으로 합칩니다.
-function buildInventoryRows(metaRows, qstats) {
+function buildInventoryRows(metaRows, qstats, acounts) {
   qstats = qstats || {};
+  acounts = acounts || {};
   return (metaRows || []).map(m => {
     const qid = m[0], extId = m[7] || '', linkedId = m[8] || '';
     const st = qstats[String(extId).trim()] || qstats[qid] || null;
     return {
       qid: qid, grade: m[1], year: m[2], month: m[3], detail: m[4], type: m[5], difficulty: m[6],
       number: extId, isSolved: st ? st[0] === 1 : false, wrongCount: st ? st[1] : 0,
-      lastTs: st ? st[2] : null, groupHash: linkedId || extId || qid
+      lastTs: st ? st[2] : null, groupHash: linkedId || extId || qid,
+      assignCount: acounts[qid] || 0
     };
   });
 }
@@ -2171,7 +2165,7 @@ function buildInventoryRows(metaRows, qstats) {
 // 관리자 '불러오기'용. 새 서버 함수가 없으면(구버전 GS) 기존 통합 함수로 대체합니다.
 function fetchInventoryRows(studentId) {
   return Promise.all([loadQuestionMeta(), gsCall('getStudentQuestionStats', [studentId])])
-    .then(([meta, st]) => buildInventoryRows(meta, st && st.qstats))
+    .then(([meta, st]) => buildInventoryRows(meta, st && st.qstats, st && st.acounts))
     .catch(err => {
       if (isMissingServerFunction(err)) return gsCall('getAdminQuestionInventory', [studentId]);
       throw err;
@@ -2181,9 +2175,42 @@ function fetchInventoryRows(studentId) {
 // 주간평가 '학생 데이터 로드'용
 function fetchWeeklyBundle(studentId, days) {
   return Promise.all([loadQuestionMeta(), gsCall('loadWeeklyStudentStats', [studentId, days])])
-    .then(([meta, r]) => ({ stats: (r && r.stats) || [], inventory: buildInventoryRows(meta, r && r.qstats) }))
+    .then(([meta, r]) => ({ stats: (r && r.stats) || [], inventory: buildInventoryRows(meta, r && r.qstats, r && r.acounts) }))
     .catch(err => {
       if (isMissingServerFunction(err)) return gsCall('loadWeeklyStudentBundle', [studentId, days]);
       throw err;
     });
+}
+
+
+/* 출제 성공 후 정리: 같은 과제를 실수로 두 번 내지 않도록 바구니·체크·제목을 비우고,
+ * 현재 학생의 완료/배부 상태를 뒤에서 다시 받아 목록에 반영합니다. (고른 필터는 그대로 유지)
+ */
+function resetMakerAfterAssign() {
+  MAKER_CART.clear();
+  updateCartUI();
+  const panel = document.getElementById('cartListPanel');
+  if (panel && panel.classList.contains('open')) toggleCartList();
+  const titleInput = document.getElementById('customTitleInput');
+  if (titleInput) titleInput.value = '';
+  document.querySelectorAll('#invTbody .inv-check:checked').forEach(cb => { cb.checked = false; });
+  const chkAll = document.getElementById('invCheckAll');
+  if (chkAll) chkAll.checked = false;
+  renderInventoryTable();
+  refreshInventoryStats();
+}
+
+function refreshInventoryStats() {
+  const selectEl = document.getElementById('targetStudentSelect');
+  const val = selectEl ? selectEl.value : '';
+  if (!val || !INVENTORY_DATA.length) return;
+  const seq = ++INVENTORY_REQUEST_SEQUENCE;
+  const user = CURRENT_USER;
+  fetchInventoryRows(val).then(data => {
+    if (seq !== INVENTORY_REQUEST_SEQUENCE || CURRENT_USER !== user || selectEl.value !== val) return;
+    const rows = (data || []).filter(q => q && q.qid);
+    if (!rows.length) return;
+    INVENTORY_DATA = rows;
+    renderInventoryTable();
+  }).catch(err => console.log('출제 후 상태 갱신 실패', err));
 }
