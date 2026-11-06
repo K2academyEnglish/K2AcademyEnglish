@@ -76,7 +76,7 @@ function showToast(message, type = 'info') {
     if(!toast) {
         toast = document.createElement('div');
         toast.id = 'globalToast';
-        toast.style.cssText = 'position:fixed; bottom:80px; right:20px; padding:12px 20px; border-radius:8px; color:#fff; font-size:14px; font-weight:bold; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,0.15); transition:opacity 0.3s;';
+        toast.style.cssText = 'position:fixed; bottom:80px; right:20px; padding:12px 20px; border-radius:8px; color:#fff; font-size:14px; font-weight:bold; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,0.15); transition:opacity 0.3s; pointer-events:none;'; // 알림이 아래 버튼 클릭을 막지 않도록
         document.body.appendChild(toast);
     }
     toast.style.backgroundColor = type === 'success' ? '#059669' : (type === 'error' ? '#dc2626' : '#2b6cb0');
