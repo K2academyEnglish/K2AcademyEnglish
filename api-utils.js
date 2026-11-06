@@ -374,3 +374,109 @@ function showImagePopup(imgUrl) {
 function showDifficultyGuide() {
     showImagePopup('https://i.imgur.com/aXAiKUV.jpeg');
 }
+
+/* ===================== 화면 데이터 캐시: 먼저 보여주고 뒤에서 갱신 =====================
+ * - 한 번 받은 목록을 브라우저(localStorage)에 저장해 두고, 다음에 열 때 즉시 표시합니다.
+ * - 동시에 서버에서 최신 데이터를 받아 내용이 바뀌었을 때만 다시 그립니다.
+ * - 같은 요청이 진행 중이면 새로 보내지 않고 기다립니다(미리 받기와 화면 열기가 겹쳐도 1번만 요청).
+ * - 키는 사용자 ID별로 분리되며, 로그아웃 버튼을 누르면 모두 지웁니다.
+ */
+const SWR_PREFIX = 'k2c:';
+const SWR_MAX_AGE = 7 * 24 * 3600 * 1000; // 7일 지난 저장본은 쓰지 않음
+const SWR_INFLIGHT = {};
+
+function _swrKey(key, scope) { return SWR_PREFIX + (scope || 'global') + ':' + key; }
+
+function swrRead(key, scope) {
+  try {
+    const raw = localStorage.getItem(_swrKey(key, scope));
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o || Date.now() - o.t > SWR_MAX_AGE) return null;
+    return o;
+  } catch (e) { return null; }
+}
+
+function swrWrite(key, scope, value) {
+  const k = _swrKey(key, scope);
+  let str;
+  try { str = JSON.stringify({ t: Date.now(), v: value }); } catch (e) { return; }
+  try { localStorage.setItem(k, str); }
+  catch (e) {
+    // 저장 공간이 부족하면 이전 저장본을 비우고 한 번 더 시도
+    swrClearAll();
+    try { localStorage.setItem(k, str); } catch (e2) {}
+  }
+}
+
+function swrInvalidate(key, scope) { try { localStorage.removeItem(_swrKey(key, scope)); } catch (e) {} }
+
+function swrClearAll() {
+  try {
+    Object.keys(localStorage).filter(k => k.indexOf(SWR_PREFIX) === 0).forEach(k => localStorage.removeItem(k));
+  } catch (e) {}
+}
+
+// 서버 호출 + 저장. 진행 중인 같은 요청은 공유합니다. 서버가 {error:...}를 돌려주면 저장하지 않습니다.
+function swrFetch(key, scope, funcName, args) {
+  const k = _swrKey(key, scope);
+  if (SWR_INFLIGHT[k]) return SWR_INFLIGHT[k];
+  const p = new Promise((resolve, reject) => {
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[funcName].apply(null, args || []);
+  }).then(v => {
+    delete SWR_INFLIGHT[k];
+    if (!(v && typeof v === 'object' && !Array.isArray(v) && v.error)) swrWrite(key, scope, v);
+    return v;
+  }, err => { delete SWR_INFLIGHT[k]; throw err; });
+  SWR_INFLIGHT[k] = p;
+  return p;
+}
+
+/**
+ * opts: { key, scope, func, args, onData(data, {fromCache}), onError(err, {hadCache}), guard() }
+ * - 저장본이 있으면 onData를 즉시(동기) 호출하고, 서버 응답이 다를 때 한 번 더 호출합니다.
+ * - guard()가 false면(예: 그 사이 로그아웃/학생 변경) 화면을 건드리지 않습니다.
+ */
+function swrLoad(opts) {
+  const guard = opts.guard || (() => true);
+  const cached = swrRead(opts.key, opts.scope);
+  let shownStr = null;
+  if (cached) {
+    shownStr = JSON.stringify(cached.v);
+    try { opts.onData(cached.v, { fromCache: true, savedAt: cached.t }); } catch (e) { console.error(e); }
+  }
+  return swrFetch(opts.key, opts.scope, opts.func, opts.args).then(v => {
+    if (!guard()) return v;
+    if (JSON.stringify(v) !== shownStr) opts.onData(v, { fromCache: false });
+    return v;
+  }).catch(err => {
+    if (!guard()) return;
+    if (opts.onError) opts.onError(err, { hadCache: shownStr !== null });
+    else if (shownStr !== null) showToast('최신 정보를 불러오지 못해 저장된 내용을 표시합니다.', 'error');
+    else showCustomAlert('불러오기 오류: ' + err);
+  });
+}
+
+// 화면에 그리지 않고 미리 받아 저장만 합니다(실패는 무시).
+function swrPrefetch(key, scope, func, args) {
+  if (!hasGsRun()) return Promise.resolve(null);
+  return swrFetch(key, scope, func, args).catch(() => null);
+}
+
+// 표/목록 자리에 넣는 작은 로딩 표시 (화면 전체를 막지 않음)
+function inlineLoadingHTML(text, colspan) {
+  const inner = `<div style="padding:24px; text-align:center; color:#6b7280; font-size:14px;">⏳ ${text || '불러오는 중...'}</div>`;
+  return colspan ? `<tr><td colspan="${colspan}">${inner}</td></tr>` : inner;
+}
+
+// google.script.run을 Promise로 감싼 호출
+function gsCall(funcName, args) {
+  return new Promise((resolve, reject) => {
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[funcName].apply(null, args || []);
+  });
+}
+// 서버를 아직 새 버전으로 배포하지 않아 새 함수가 없을 때
+function isMissingServerFunction(err) {
+  const m = String(err && err.message ? err.message : err);
+  return m.indexOf('허용되지 않은 함수') !== -1 || m.indexOf('존재하지 않는 함수') !== -1;
+}
