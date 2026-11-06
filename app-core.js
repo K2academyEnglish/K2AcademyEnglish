@@ -205,6 +205,7 @@ function routeTo(mode, isPopState = false){
     const tab = document.getElementById('topTabQuiz');
     if(tab) tab.classList.add('active');
     showPanel('selectPage');
+    loadStudentFilters();
   } 
   else if(mode === 'wrong') {
     const tab = document.getElementById('topTabWrong');
@@ -300,12 +301,8 @@ function switchAdminTab(mode) {
         if(tabCreate) tabCreate.classList.remove('active');
         if(tabHistory) tabHistory.classList.add('active');
         
-        // 이미 불러온 배부 기록 캐시가 있으면 서버 통신 없이 즉시 렌더링
-        if (ADMIN_HISTORY_CACHE && ADMIN_HISTORY_CACHE.length > 0) {
-            renderHistoryUI();
-        } else {
-            loadAdminHistory();
-        }
+        // 저장된 배부 기록을 즉시 보여주고, 최신 기록은 뒤에서 받아 바뀐 경우에만 다시 그립니다.
+        loadAdminHistory();
     }
 }
 
@@ -367,8 +364,8 @@ function startQuizEntry(){
         } else {
             if(loadEl) loadEl.classList.remove('active');
             showPanel('studentMainPage');
-            // 과제 목록은 과제 탭에 진입할 때만 조회
         }
+        prefetchAfterLogin(user);
       })
       .withFailureHandler(err => {
         LOGIN_PENDING = false;
@@ -439,7 +436,7 @@ function initUI(){
   
   on('btnHeaderLogin', 'click', startQuizEntry);
   on('headerUsername', 'keydown', (e)=>{ if(e.key === 'Enter') startQuizEntry(); });
-  on('btnGoStart', 'click', goStart);
+  on('btnGoStart', 'click', () => { swrClearAll(); goStart(); });
 
   // 2. 상단 탭 연결
   on('topTabQuiz',  'click', ()=>routeTo('quiz'));
@@ -657,6 +654,7 @@ on('btnShowMap', 'click', () => {
                       showPanel('studentMainPage');
                   }
               }
+              prefetchAfterLogin(CURRENT_USER);
               autoLoginSuccess = true;
           } else {
               localStorage.removeItem('k2_session'); // 10분 초과 시 파기
@@ -732,3 +730,34 @@ window.switchWkGradeTab = switchWkGradeTab;
 window.switchAdminTab = switchAdminTab;
 window.loadAdminHistory = loadAdminHistory;
 window.switchWkGradeTab = switchWkGradeTab;
+
+
+/* ===================== 로그인 직후 미리 받기 =====================
+ * 사용자가 메뉴를 누르기 전에 자주 여는 화면의 데이터를 뒤에서 받아 둡니다.
+ * 요청이 끝나기 전에 메뉴를 눌러도 같은 요청을 공유하므로 두 번 보내지 않습니다.
+ */
+let VOCAB_PREFETCH = null;
+function prefetchAfterLogin(user) {
+  if (!user || !user.id || !hasGsRun()) return;
+  // 화면 전환·로딩과 겹치지 않도록 조금 뒤에 시작
+  setTimeout(() => {
+    if (CURRENT_USER !== user) return;
+    if (user.role === 'manager') {
+      swrPrefetch('adminHistory:3m', user.id, 'getAllAssignmentsForAdmin', ['', false]);
+      // 문항 목록을 미리 확인/저장해 두면 첫 '불러오기'에서 학생 통계만 기다리면 됩니다.
+      if (typeof loadQuestionMeta === 'function') loadQuestionMeta().catch(() => {});
+      return;
+    }
+    swrPrefetch('myAssignments', user.id, 'getAllMyAssignments', [user]);
+    swrPrefetch('sourceFilters', 'global', 'getSourceFiltersAndTypes', []);
+    // 단어장은 낙관적 수정과 충돌하지 않도록 메모리(VOCAB_CACHE)가 비어 있을 때만 채웁니다.
+    if (!VOCAB_CACHE && !VOCAB_PREFETCH) {
+      VOCAB_PREFETCH = new Promise(resolve => {
+        google.script.run.withSuccessHandler(data => {
+          if (CURRENT_USER === user && !VOCAB_CACHE && Array.isArray(data)) VOCAB_CACHE = data;
+          resolve();
+        }).withFailureHandler(() => resolve()).getVocabulary(user);
+      }).then(() => { VOCAB_PREFETCH = null; });
+    }
+  }, 300);
+}
