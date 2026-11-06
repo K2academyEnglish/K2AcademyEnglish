@@ -583,12 +583,18 @@ on('btnShowMap', 'click', () => {
                       return;
                   }
                   ADMIN_HISTORY_CACHE = []; // 새 과제 출제 시 배부기록 캐시 무효화
-                  google.script.run.withSuccessHandler(realQs => {
+                  const printName = `${userObj.name}(${userObj.id})`;
+                  const openPrint = realQs => {
                       if(loadEl) loadEl.classList.remove('active');
-                      const printName = `${userObj.name}(${userObj.id})`;
                       renderQuestionsForPrint(realQs, customTitle, null, printName);
                       document.getElementById('weeklyTitleInput').value = '';
-                  }).withFailureHandler(err => {
+                  };
+                  // createAssignment가 인쇄용 문항(res.qs)을 함께 돌려주므로 재요청하지 않습니다.
+                  if (res && Array.isArray(res.qs)) {
+                      openPrint(res.qs);
+                      return;
+                  }
+                  google.script.run.withSuccessHandler(openPrint).withFailureHandler(err => {
                       if(loadEl) loadEl.classList.remove('active');
                       showCustomAlert('문항 로드 실패: ' + err);
                   }).getQuestionsByQids(qids);
