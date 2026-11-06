@@ -173,16 +173,8 @@ function goStart(){
   hideFooter();
   setTopTab('quiz');
   showPanel('startPage');
-  ['drawerDictWord', 'drawerWord', 'drawerMeaning', 'drawerSearch'].forEach(id => {
-    const el = document.getElementById(id); 
-    if(el) el.value = ''; 
-  });
-  const dFrame = document.getElementById('drawerDictFrame');
-  if(dFrame) dFrame.src = 'about:blank';
-  const dList = document.getElementById('drawerList');
-  if(dList) dList.innerHTML = '';
-  const dStatus = document.getElementById('drawerSaveStatus');
-  if(dStatus) dStatus.textContent = '';
+  // 미니 단어장 입력칸·목록·사전 창 초기화
+  if (typeof vocabResetMiniDrawer === 'function') vocabResetMiniDrawer();
 
   syncLoginUI();
 }
@@ -475,27 +467,21 @@ on('btnShowMap', 'click', () => {
   on('showListBtn', 'click', vocabShowWordList);
 
   // 6. 단어장 팝업(Drawer) 기능
-  on('btnOpenVocab', 'click', openVocabDrawer);
+  on('btnOpenVocab', 'click', toggleVocabDrawer); // 상단 '단어' 버튼: 미니 단어장 열기/닫기
   on('btnVocabDrawerClose', 'click', closeVocabDrawer);
   on('drawerOverlay', 'click', () => {
     closeVocabDrawer();
     closeQuestionMap();
     closeNavDrawer();
   });
-  on('drawerSearch', 'input', (e)=>drawerFilterList(e.target.value));
-  on('btnDrawerDict', 'click', ()=>{
-    var el = document.getElementById('drawerDictWord');
-    const w = (el && el.value) ? el.value : '';
-    drawerSearchDict(w);
+  on('btnDrawerDict', 'click', () => {
+    const el = document.getElementById('drawerWord');
+    openDictionary(el ? el.value : '');
   });
-  on('drawerDictWord', 'keydown', function(e){
-    if (e.key === 'Enter') {
-      var el = document.getElementById('drawerDictWord');
-      var w = (el && el.value) ? el.value : '';
-      drawerSearchDict(w);
-    }
-  });
+  on('btnDrawerDictClose', 'click', closeDrawerDict);
   on('drawerWord', 'input', (e) => drawerCheckDuplicateInput(e.target));
+  on('drawerWord', 'keydown', (e) => { if (e.key === 'Enter') { const m = document.getElementById('drawerMeaning'); if (m) m.focus(); } });
+  on('drawerMeaning', 'keydown', (e) => { if (e.key === 'Enter') drawerSaveWord(); });
   on('btnDrawerSave', 'click', drawerSaveWord);
 
 
