@@ -1,5 +1,6 @@
 /* ===================== 단어장 ===================== */
-let VOCAB_FULL = [];
+// 메인 단어장과 드로어가 같은 VOCAB_CACHE(app-core.js)를 공유합니다.
+function vocabList(){ return Array.isArray(VOCAB_CACHE) ? VOCAB_CACHE : []; }
 let VOCAB_TYPO = {};
 let VOCAB_TYPO_READY = false;
 
@@ -73,6 +74,7 @@ function onAdminVocabStudentChange(id) {
 function vocabLoadWordList(forceReload){
   const targetUser = getActiveVocabUser();
   if(!targetUser) return;
+  vocabInitTypoOnce();
   VOCAB_CURRENT_PAGE = 1;
 
   // 1. 이미 불러온 데이터(캐시)가 있으면 재요청 없이 바로 렌더링
@@ -276,14 +278,14 @@ function vocabCheckDuplicateInput(el) {
     if (!statusBox) return;
 
     _vocabNewWordTimer = setTimeout(() => {
-        let query = el.value.trim().toLowerCase();
-        if (!query) {
+        const rawQuery = el.value.trim().toLowerCase();
+        if (!rawQuery) {
             statusBox.innerText = '';
             return;
         }
 
-        // 오타 보정 적용 (기존 로직 활용)
-        query = vocabCorrectTypo(query);
+        // 오타 보정 적용 (응답 도착 시 비교는 보정 전 입력값으로 합니다)
+        const query = String(vocabCorrectTypo(rawQuery)).toLowerCase();
 
         if (!VOCAB_CACHE || !Array.isArray(VOCAB_CACHE)) return;
 
@@ -298,7 +300,7 @@ function vocabCheckDuplicateInput(el) {
             if (hasGsRun()) {
                 google.script.run
                     .withSuccessHandler(function(translated) {
-                        if (translated && document.getElementById('newWord').value.trim().toLowerCase() === query) {
+                        if (translated && document.getElementById('newWord').value.trim().toLowerCase() === rawQuery) {
                             const meanings = translated.split(',').map(s => s.trim()).filter(Boolean);
                             let html = '<div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin-top:4px;">' + 
                                        '<span style="color:#2b6cb0; font-size:13px; font-weight:bold; margin-right:4px;">추천 뜻: </span>';
@@ -710,6 +712,7 @@ function drawerEnsureLoaded(){
   if (DRAWER_DICT_ONLY) return; 
   const st = document.getElementById('drawerStatus');
   if (!CURRENT_USER) return;
+  vocabInitTypoOnce();
 
   // ★ 수정: VOCAB_CACHE가 있으면 그것을 사용 (메인 단어장과 공유)
   if (VOCAB_CACHE && Array.isArray(VOCAB_CACHE)) {
@@ -738,10 +741,10 @@ function drawerEnsureLoaded(){
 function drawerFilterList(q){
   q = String(q||'').trim().toLowerCase();
   if (!q){
-    drawerRenderList((VOCAB_FULL||[]).slice(0, 50));
+    drawerRenderList(vocabList().slice(0, 50));
     return;
   }
-  const filtered = (VOCAB_FULL||[]).filter(x=>{
+  const filtered = vocabList().filter(x=>{
     const w = String(x.word||'').toLowerCase();
     const m = String(x.meaning||'').toLowerCase();
     return w.includes(q) || m.includes(q);
@@ -938,14 +941,14 @@ function drawerCheckDuplicateInput(el) {
     if (!statusBox) return;
 
     _drawerNewWordTimer = setTimeout(() => {
-        let query = el.value.trim().toLowerCase();
-        if (!query) {
+        const rawQuery = el.value.trim().toLowerCase();
+        if (!rawQuery) {
             statusBox.innerText = '';
             return;
         }
 
-        query = vocabCorrectTypo(query);
-        const cacheToUse = (VOCAB_CACHE && Array.isArray(VOCAB_CACHE)) ? VOCAB_CACHE : (VOCAB_FULL || []);
+        const query = String(vocabCorrectTypo(rawQuery)).toLowerCase();
+        const cacheToUse = vocabList();
         const duplicate = cacheToUse.find(item => String(item.word || '').toLowerCase() === query);
 
         if (duplicate) {
@@ -956,7 +959,7 @@ function drawerCheckDuplicateInput(el) {
             if (hasGsRun()) {
                 google.script.run
                     .withSuccessHandler(function(translated) {
-                        if (translated && document.getElementById('drawerWord').value.trim().toLowerCase() === query) {
+                        if (translated && document.getElementById('drawerWord').value.trim().toLowerCase() === rawQuery) {
                             const meanings = translated.split(',').map(s => s.trim()).filter(Boolean);
                             let html = '<div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center;">' + 
                                        '<span style="color:#2b6cb0; font-weight:bold; margin-right:4px;">추천: </span>';
@@ -1006,7 +1009,7 @@ function drawerSaveWord(){
   word = vocabCorrectTypo(word);
 
   // 중복 확인 로직
-  const dup = (VOCAB_FULL||[]).find(x => String(x.word||'').toLowerCase() === word.toLowerCase());
+  const dup = vocabList().find(x => String(x.word||'').toLowerCase() === word.toLowerCase());
   
   if(dup){
         const existing = String(dup.meaning||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
