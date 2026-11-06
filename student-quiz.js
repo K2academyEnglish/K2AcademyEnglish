@@ -1239,54 +1239,87 @@ function _startAssignmentNow(id, mode){
     .loadRetryData(CURRENT_USER, qids, id, mode === 'omr' ? 'omr' : null);
 }
 
-/* [도우미 함수] 온라인 풀기 화면 HTML 생성 (스파게티 코드 분리용) */
-function generateOnlineViewHtml(q) {
-    let html = '<style>.online-box img { max-width: 100% !important; height: auto !important; object-fit: contain; display: block; margin: 8px auto; }</style>';
-    const p1 = q.box1 ? sanitizeInlineHTML(q.box1) : '';
-    const p2 = q.box2 ? sanitizeInlineHTML(q.box2) : '';
-    const p3 = q.box3 ? sanitizeInlineHTML(q.box3) : '';
-    const p4 = q.box4 ? sanitizeInlineHTML(q.box4) : '';
-    const combinedPassage = [p1, p2, p3, p4].filter(p => p.trim() !== '').join('<div style="height:12px;"></div>');
-    
-    if (combinedPassage) {
-        html += `<div class="passage-wrap" style="background:#fff; border:1px solid #e5e7eb; padding:12px; border-radius:8px; margin-bottom:12px; font-family:'Times New Roman', serif; font-size:15px; line-height:1.6;">${combinedPassage}</div>`;
-    }
-    
-    let preservedHTML = sanitizeInlineHTML(q.question).replace(/^\d+[\.．]\s*/, '');
+/* [도우미 함수] 과제 OMR '온라인' 보기: 실제 모의고사 한 단(段) 너비의 시험지 형태로 생성
+ * 순서: 번호·발문 → (주어진 문장 박스) → 지문 → 선택지 ①~⑤  (style.css의 .exam-paper 참고)
+ */
+function generateOnlineViewHtml(q, displayNum) {
+    const passages = [q.box1, q.box2, q.box3, q.box4]
+        .map(x => x ? sanitizeInlineHTML(x) : '')
+        .filter(x => x.replace(/<br\s*\/?>/gi, '').trim() !== '');
+
+    let stem = sanitizeInlineHTML(q.question || '').trim();
+    const numMatch = stem.match(/^(\d+)[\.．]\s*/);
+    const num = numMatch ? numMatch[1] : displayNum;
+    stem = stem.replace(/^\d+[\.．]\s*/, '');
+
+    // 발문 안의 <box>(주어진 문장 등)는 발문 아래로 분리
     let extractedBox = '';
     const boxRegex = /<div class="exam-q-box">([\s\S]*?)<\/div>/i;
-    const boxMatch = preservedHTML.match(boxRegex);
+    const boxMatch = stem.match(boxRegex);
     if (boxMatch) {
         extractedBox = boxMatch[0];
-        preservedHTML = preservedHTML.replace(boxRegex, '');
+        stem = stem.replace(boxRegex, '');
     }
-    
-    html += `<div style="font-size:15px; font-weight:bold; margin-bottom:10px; color:#1e293b;">${toOneLine(preservedHTML).trim()}</div>`;
-    if (extractedBox) html += `<div style="margin-bottom:12px;">${extractedBox}</div>`;
-    
+
+    let html = '<div class="exam-paper">';
+    html += `<div class="ep-q"><span class="ep-num">${num}.</span><span class="ep-stem">${toOneLine(stem).trim()}</span></div>`;
+    if (extractedBox) html += `<div class="ep-indent">${extractedBox}</div>`;
+    if (passages.length) {
+        html += '<div class="ep-passage">' + passages.map(x => `<div class="ep-par">${x}</div>`).join('') + '</div>';
+    }
+
     const isDesc = String(q.type || '').includes('서술형');
     if (!isDesc && q.options && q.options.length > 0) {
         const symbols = ['①','②','③','④','⑤'];
+        html += '<div class="ep-options">';
         q.options.forEach((opt, optIdx) => {
-            if (opt.trim()) {
-                html += `<label class="option" style="display:block; padding:10px; margin:6px 0; border:1px solid #d1d5db; border-radius:8px; cursor:pointer; background:#fff; transition:all 0.2s;" 
-                           onclick="const omrWrap = this.closest('.question-card').querySelector('.omr-options-wrap');
-                                    if (omrWrap) {
-                                        const targetRadio = omrWrap.querySelector('input[value=\\'${optIdx + 1}\\']');
-                                        if (targetRadio && !targetRadio.disabled) targetRadio.click();
-                                    }
-                                    const siblings = this.parentElement.querySelectorAll('.option');
-                                    siblings.forEach(s => { s.style.background = '#fff'; s.style.borderColor = '#d1d5db'; s.style.color = 'inherit'; });
-                                    this.style.background = '#eff6ff'; this.style.borderColor = '#2b6cb0'; this.style.color = '#1e40af';">
-                            <span style="font-weight:bold; margin-right:8px; color:#475569;">${symbols[optIdx] || ''}</span>
-                            <span>${sanitizeInlineHTML(opt)}</span>
-                         </label>`;
+            if (String(opt || '').trim()) {
+                html += `<div class="ep-opt" role="button" tabindex="0" data-opt="${optIdx + 1}">` +
+                        `<span class="ep-sym">${symbols[optIdx] || ''}</span>` +
+                        `<span class="ep-opt-text">${sanitizeInlineHTML(opt)}</span></div>`;
             }
         });
+        html += '</div>';
     } else if (isDesc) {
-        html += `<div style="color:#64748b; font-size:13px; text-align:center; padding:10px;">※ 서술형 문항의 정답은 상단의 OMR 입력칸을 이용해 주십시오.</div>`;
+        html += '<div class="ep-note">※ 서술형 답안은 OMR 입력칸에 작성하세요.</div>';
     }
+    html += '</div>';
     return html;
+}
+
+// 시험지의 선택지 ↔ OMR 버튼 양방향 동기화 (카드당 1회 연결)
+function bindOnlinePaper(card, box, idx) {
+    const radioName = 'omr_' + idx;
+    const sync = () => {
+        const checked = card.querySelector(`.omr-options-wrap input[name="${radioName}"]:checked`);
+        const val = checked ? checked.value : '';
+        box.querySelectorAll('.ep-opt').forEach(el => {
+            el.classList.toggle('selected', el.dataset.opt === val);
+            const radio = card.querySelector(`.omr-options-wrap input[name="${radioName}"][value="${el.dataset.opt}"]`);
+            el.classList.toggle('locked', !radio || radio.disabled);
+        });
+    };
+    if (!box.dataset.bound) {
+        box.dataset.bound = 'true';
+        const choose = (opt) => {
+            const radio = card.querySelector(`.omr-options-wrap input[name="${radioName}"][value="${opt.dataset.opt}"]`);
+            if (radio && !radio.disabled) radio.click(); // 기존 OMR 클릭 처리(선택/해제)를 그대로 사용
+            sync();
+        };
+        box.addEventListener('click', e => {
+            const opt = e.target.closest('.ep-opt');
+            if (opt) choose(opt);
+        });
+        box.addEventListener('keydown', e => {
+            const opt = e.target.closest('.ep-opt');
+            if (opt && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); choose(opt); }
+        });
+        // OMR 버튼을 직접 눌렀을 때도 시험지에 표시 (상위 OMR 처리 후 반영)
+        card.addEventListener('click', e => {
+            if (e.target && e.target.matches && e.target.matches(`input[name="${radioName}"]`)) setTimeout(sync, 0);
+        });
+    }
+    sync();
 }
 
 // 문항 객체별로 진행 중 요청을 공유합니다. 과제 기록은 캐시하지 않습니다.
@@ -1451,6 +1484,7 @@ function renderOMRSheet(qs, history, isReviewMode, assignmentId) {
         const targetBox = card.querySelector('.online-box');
         if (targetBox.style.display !== 'none') {
             targetBox.style.display = 'none';
+            card.classList.remove('online-open');
             return;
         }
         this.disabled = true;
@@ -1459,9 +1493,14 @@ function renderOMRSheet(qs, history, isReviewMode, assignmentId) {
         try {
             await ensureOMRQuestionDetail(q);
             if (!card.isConnected || !CURRENT_QUIZ_DATA.includes(q)) return;
-            if (targetBox.innerHTML === '') targetBox.innerHTML = generateOnlineViewHtml(q);
+            if (targetBox.innerHTML === '') targetBox.innerHTML = generateOnlineViewHtml(q, idx + 1);
+            // 다른 문항의 시험지는 닫고, 이 카드를 한 줄 전체로 펼침
             document.querySelectorAll('.online-box').forEach(box => box.style.display = 'none');
+            document.querySelectorAll('.question-card.online-open').forEach(c => c.classList.remove('online-open'));
             targetBox.style.display = 'block';
+            card.classList.add('online-open');
+            bindOnlinePaper(card, targetBox, idx);
+            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } catch (err) { showCustomAlert('문항 로드 실패: ' + err); }
         finally { this.disabled = false; this.textContent = previousText; }
     };
@@ -1565,12 +1604,7 @@ function renderOMRSheet(qs, history, isReviewMode, assignmentId) {
   // [신규] 온라인 풀기 동적 영역 컨테이너 (내용은 클릭 시 지연 로딩됨)
     const onlineBox = document.createElement('div');
     onlineBox.className = 'online-box';
-    onlineBox.style.display = 'none';
-    onlineBox.style.marginTop = '15px';
-    onlineBox.style.padding = '15px';
-    onlineBox.style.background = '#f8fafc';
-    onlineBox.style.border = '1px solid #cbd5e1';
-    onlineBox.style.borderRadius = '8px';
+    onlineBox.style.display = 'none'; // 모양은 style.css의 .online-box / .exam-paper
     card.appendChild(onlineBox);
 
     // [해설 박스 추가]
