@@ -47,6 +47,8 @@ function initAdminVocabMode() {
       document.getElementById('vocabStats').style.display = 'none';
       return;
     }
+    // 이미 고른 학생이 있으면 그 학생 단어장을 다시 표시 (불러온 데이터 재사용)
+    vocabLoadWordList();
   } else {
     if (bar) bar.style.display = 'none';
     if (addSec) addSec.style.display = 'block';
@@ -76,6 +78,9 @@ function vocabLoadWordList(forceReload){
   if(!targetUser) return;
   vocabInitTypoOnce();
   VOCAB_CURRENT_PAGE = 1;
+  // 시험 도중 다른 화면에 갔다 오거나 학생을 바꾸면 목록 화면으로 복귀
+  const studyBox = document.getElementById('vocabStudy');
+  if (studyBox && studyBox.style.display !== 'none' && typeof _vtShowStudy === 'function') { _vtShowStudy(false); studyBox.innerHTML = ''; }
 
   // 1. 이미 불러온 데이터(캐시)가 있으면 재요청 없이 바로 렌더링
   if(!forceReload && VOCAB_CACHE) {
@@ -120,161 +125,6 @@ function vocabLoadWordList(forceReload){
     if(loadEl) loadEl.classList.remove('active');
     showCustomAlert('단어장 불러오기 오류: ' + err);
   }).getVocabulary(targetUser);
-}
-
-// [신규] 데이터를 받아서 단어장 표를 그려주는 함수 (내용 생략 없이 꽉 채움)
-function renderVocabTableFromData(data, isSearchMode = false) {
-    const box = document.getElementById('wordList');
-    
-    // 1. 에러 및 빈 데이터 처리
-    if (data && data.error) {
-        box.innerText = '⚠️ ' + data.error;
-        return;
-    }
-    if (!data || data.length === 0) {
-        box.innerHTML = '<div style="padding:20px; text-align:center; color:#666;">📭 결과가 없습니다.</div>';
-        return;
-    }
-
-    let pageData = [];
-    let navHtml = '';
-
-    // 2. 모드에 따른 데이터 슬라이싱
-    if (isSearchMode) {
-        pageData = data;
-        navHtml = `
-            <div style="background:#eff6ff; padding:10px; border-radius:8px; margin-bottom:10px; text-align:center; color:#1e40af; font-weight:bold;">
-                🔍 검색 결과: 총 ${data.length}개 찾음
-            </div>
-        `;
-    } else {
-        const PAGE_SIZE = 100;
-        const totalCount = data.length;
-        const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-        
-        if (VOCAB_CURRENT_PAGE < 1) VOCAB_CURRENT_PAGE = 1;
-        if (VOCAB_CURRENT_PAGE > totalPages) VOCAB_CURRENT_PAGE = totalPages;
-
-        const startIndex = (VOCAB_CURRENT_PAGE - 1) * PAGE_SIZE;
-        const endIndex = Math.min(startIndex + PAGE_SIZE, totalCount);
-        pageData = data.slice(startIndex, endIndex);
-
-        const btnStyle = "width:auto; padding:8px 16px; border:1px solid #d1d5db; background:#fff; color:#111827; border-radius:8px; font-size:14px; cursor:pointer;";
-        
-        navHtml = `
-          <div style="display:flex; justify-content:space-between; align-items:center; margin:10px 0; background:#f3f4f6; padding:10px; border-radius:8px;">
-            <button type="button" onclick="changeVocabPage(-1)" style="${btnStyle} ${VOCAB_CURRENT_PAGE === 1 ? 'visibility:hidden;' : ''}">
-                 &lt; 이전
-             </button>
-             <div style="text-align:center;">
-                 <div style="font-weight:bold; font-size:15px; color:#111827;">${VOCAB_CURRENT_PAGE} / ${totalPages}</div>
-                 <div style="font-size:12px; color:#6b7280; margin-top:2px;">(총 ${totalCount}개)</div>
-             </div>
-             <button type="button" onclick="changeVocabPage(1)" style="${btnStyle} ${VOCAB_CURRENT_PAGE === totalPages ? 'visibility:hidden;' : ''}">
-                 다음 &gt;
-             </button>
-          </div>
-        `;
-    }
-
-    // 3. 테이블 생성 (수정 버튼 위치 변경됨)
-    const escQuote = (s) => String(s).replace(/'/g, "\\'").replace(/"/g, '&quot;');
-    let tableHtml = '<table class="vocab-table" style="width:100%; table-layout:fixed;">';
-    
-    // 헤더 조정 (관리 컬럼 폭을 조금 늘림)
-    tableHtml += `
-      <thead>
-        <tr style="background:#f9fafb;">
-            <th style="width:40px; text-align:center;">No.</th>
-            <th>영어</th>
-            <th>뜻</th>
-            <th style="width:70px; text-align:center;">관리</th> 
-        </tr>
-      </thead>
-      <tbody>
-    `;
-
-    pageData.forEach(row => {
-        const wSafe = escQuote(row.word);
-        const mSafe = escQuote(row.meaning);
-        const isMemorized = row.memorized ? 'checked' : '';
-        const rowBg = row.memorized ? 'background:#f0fdf4;' : ''; 
-
-        tableHtml += `
-          <tr style="${rowBg}">
-             <td style="text-align:center; color:#666;">${row.number}</td>
-             <td style="word-break:break-all; font-weight:bold; color:#1f2937;">${escapeHTML(row.word)}</td>
-             <td style="word-break:keep-all; color:#374151;">${escapeHTML(row.meaning)}</td>
-             <td style="text-align:center;">
-                <div style="display:flex; justify-content:center; align-items:center; gap:8px;">
-                    <label style="display:flex; align-items:center; cursor:pointer;" title="외움 표시">
-                        <input type="checkbox" class="memorized-checkbox" data-word="${escapeHTML(row.word)}" ${isMemorized} 
-                               style="transform:scale(1.3); margin:0;">
-                    </label>
-                    <button type="button" class="btn-ghost" 
-                            style="padding:4px 8px; font-size:12px; height:auto; border:1px solid #d1d5db; background:white; color:#374151;" 
-                            onclick="vocabEnableEdit(this, '${wSafe}', '${mSafe}')">수정</button>
-                </div>
-             </td>
-          </tr>
-        `;
-    });
-    tableHtml += '</tbody></table>';
-
-    // 4. 최종 출력
-    box.innerHTML = navHtml + tableHtml + (isSearchMode ? '' : navHtml);
-    
-    box.style.display = 'block';
-    const elQuiz = document.getElementById('quiz'); if(elQuiz) elQuiz.innerHTML = '';
-    const elScore = document.getElementById('score'); if(elScore) elScore.innerText = '';
-    const elShowBtn = document.getElementById('showListBtn'); if(elShowBtn) elShowBtn.style.display = 'none';
-
-    vocabSetupCheckboxListeners();
-}
-
-let _vocabSearchTimer = null; // ★ [최적화] 디바운싱(타이머)용 변수
-
-// [추가] 실시간 검색 처리 함수
-function vocabOnSearchInput(el) {
-    clearTimeout(_vocabSearchTimer); // ★ 타자를 치는 동안에는 기존 예약된 검색을 계속 취소함
-
-    // ★ 타자를 멈추고 0.3초(300ms)가 지나면 비로소 아래 로직을 딱 한 번 실행함
-    _vocabSearchTimer = setTimeout(() => {
-        const query = el.value.trim().toLowerCase();
-
-        // 1. 검색어가 없으면 원래 전체 데이터 + 페이징 모드로 복귀
-        if (!query) {
-            // 원래 위치(현재 페이지)를 유지하고 싶으면 아래 줄 삭제, 
-            // 검색 취소 시 1페이지로 가고 싶으면 유지.
-            // VOCAB_CURRENT_PAGE = 1; 
-            renderVocabTableFromData(VOCAB_CACHE, false);
-            // false = 일반 모드
-            return;
-        }
-
-        // 2. 검색어가 있으면 전체 데이터에서 필터링
-        if (!VOCAB_CACHE) return;
-        const filtered = VOCAB_CACHE.filter(item => {
-            const w = String(item.word || '').toLowerCase();
-            const m = String(item.meaning || '').toLowerCase();
-            return w.includes(query) || m.includes(query); // 영어 OR 한글 포함 여부
-        });
-
-        // 3. 필터링된 데이터로 렌더링 (true = 검색 모드, 갯수 제한 없음)
-        renderVocabTableFromData(filtered, true);
-    }, 300); // 300ms 대기
-}
-
-// 페이지 변경 버튼 클릭 시 호출
-function changeVocabPage(delta) {
-    if (!VOCAB_CACHE) return;
-    
-    VOCAB_CURRENT_PAGE += delta;
-    // 일반 모드(false)로 렌더링
-    renderVocabTableFromData(VOCAB_CACHE, false);
-    
-    const listSection = document.getElementById('vocabPage');
-    if(listSection) listSection.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 
 let _vocabNewWordTimer = null;
@@ -691,12 +541,16 @@ function closeNavDrawer() {
   if(o) o.style.display = 'none'; // 배경 어두운 것 제거
 }
 
-function fetchDatamuse(type, isMain) {
+// opts: { word, resultEl, onPick(word) } — 단어장 펼침 영역처럼 입력칸 없이 호출할 때 사용
+function fetchDatamuse(type, isMain, opts) {
+  opts = opts || {};
   const inputId = isMain ? 'newWord' : 'drawerDictWord';
   const resultId = isMain ? 'datamuseResultMain' : 'datamuseResult';
   
-  const word = document.getElementById(inputId).value.trim();
-  const resultBox = document.getElementById(resultId);
+  const inputEl = document.getElementById(inputId);
+  const word = (opts.word != null ? String(opts.word) : (inputEl ? inputEl.value : '')).trim();
+  const resultBox = opts.resultEl || document.getElementById(resultId);
+  if (!resultBox) return;
   if (!word) {
     resultBox.innerHTML = '<span style="color:#dc2626;">단어를 먼저 입력하세요.</span>';
     return;
@@ -713,7 +567,7 @@ function fetchDatamuse(type, isMain) {
     if ((!CONFUSING_WORDS_DB || CONFUSING_WORDS_DB.length === 0) && hasGsRun()) {
       google.script.run.withSuccessHandler(data => {
         CONFUSING_WORDS_DB = data || [];
-        fetchDatamuse(type, isMain);
+        fetchDatamuse(type, isMain, opts);
       }).getConfusingWordsFromSheet();
       return;
     }
@@ -734,6 +588,7 @@ function fetchDatamuse(type, isMain) {
         chip.onmouseover = function() { this.style.background = '#e5e7eb'; };
         chip.onmouseout = function() { this.style.background = '#f3f4f6'; };
         chip.onclick = function() {
+          if (opts.onPick) { opts.onPick(w, chip); return; }
           document.getElementById(inputId).value = w;
           if (isMain) vocabSearchNaverDict();
           else drawerSearchDict(w);
@@ -797,6 +652,7 @@ function fetchDatamuse(type, isMain) {
         chip.onmouseout = function() { this.style.background = '#f3f4f6'; };
 
         chip.onclick = function() {
+          if (opts.onPick) { opts.onPick(item.word, chip); return; }
           document.getElementById(inputId).value = item.word;
           if (isMain) {
             vocabSearchNaverDict(); 
@@ -909,7 +765,10 @@ function _queueVocabServer(funcName, args, failMsg) {
  * 서버(addWordToFormAndSheet)가 중복 단어의 뜻 합치기를 직접 처리하므로 항상 같은 함수로 보냅니다.
  */
 function vocabQuickSave(rawWord, rawMeaning) {
-  const user = CURRENT_USER;
+  if (CURRENT_USER && CURRENT_USER.role === 'manager' && !ADMIN_TARGET_VOCAB_USER) {
+    return { ok: false, msg: '단어를 추가할 학생을 먼저 선택해 주세요.' };
+  }
+  const user = getActiveVocabUser(); // 학생 본인 또는 관리자가 고른 학생
   if (!user || !user.id) return { ok: false, msg: '로그인이 필요합니다.' };
   const word = String(vocabCorrectTypo(String(rawWord || '').trim()) || '').trim().toLowerCase();
   const inputMeanings = String(rawMeaning || '').split(',').map(m => m.trim()).filter(Boolean);
@@ -923,7 +782,7 @@ function vocabQuickSave(rawWord, rawMeaning) {
       const lowerSet = new Set(existing.map(m => m.toLowerCase()));
       const added = inputMeanings.filter(m => !lowerSet.has(m.toLowerCase()));
       if (!added.length) {
-        rememberMiniWord(word, dup.meaning);
+        if (user === CURRENT_USER) rememberMiniWord(word, dup.meaning);
         return { ok: true, status: 'exists', word: word, meaning: dup.meaning };
       }
       merged = existing.concat(added).join(', ');
@@ -933,14 +792,16 @@ function vocabQuickSave(rawWord, rawMeaning) {
       VOCAB_CACHE.push({ number: VOCAB_CACHE.length + 1, word: word, meaning: merged, memorized: false });
     }
   }
-  rememberMiniWord(word, merged);
+  if (user === CURRENT_USER) rememberMiniWord(word, merged);
   _queueVocabServer('addWordToFormAndSheet', [user, word, inputMeanings.join(', ')], '단어 저장 실패');
+  if (status === 'new') { const el = document.getElementById('todayAdded'); if (el) el.textContent = (parseInt(el.textContent, 10) || 0) + 1; }
+  document.dispatchEvent(new CustomEvent('vocab:changed', { detail: { word: word } }));
   return { ok: true, status: status, word: word, meaning: merged };
 }
 
 // 이번에 저장한 단어 수정 (단어·뜻 전체 교체)
 function vocabQuickEdit(oldWord, newWordRaw, newMeaningRaw) {
-  const user = CURRENT_USER;
+  const user = getActiveVocabUser();
   const newWord = String(newWordRaw || '').trim().toLowerCase();
   const newMeaning = String(newMeaningRaw || '').split(',').map(m => m.trim()).filter(Boolean).join(', ');
   if (!user || !newWord || !newMeaning) return false;
@@ -948,9 +809,12 @@ function vocabQuickEdit(oldWord, newWordRaw, newMeaningRaw) {
     const item = VOCAB_CACHE.find(x => String(x.word || '').toLowerCase() === oldWord);
     if (item) { item.word = newWord; item.meaning = newMeaning; }
   }
-  setMiniWords(getMiniWords().map(x => x.word === oldWord ? { word: newWord, meaning: newMeaning, ts: x.ts } : x));
-  renderMiniWordList();
+  if (user === CURRENT_USER) {
+    setMiniWords(getMiniWords().map(x => x.word === oldWord ? { word: newWord, meaning: newMeaning, ts: x.ts } : x));
+    renderMiniWordList();
+  }
   _queueVocabServer('editWord', [user, oldWord, newWord, newMeaning], '단어 수정 실패');
+  document.dispatchEvent(new CustomEvent('vocab:changed', { detail: { word: newWord } }));
   return true;
 }
 
@@ -1035,7 +899,8 @@ function openDictionary(word) {
   const w = String(word || '').trim();
   if (!w) { showToast('사전에서 찾을 단어를 입력하세요.', 'info'); return; }
   const url = MINI_DICT_URL + encodeURIComponent(w);
-  if (window.innerWidth < 821) { window.open(url, '_blank', 'noopener'); return; }
+  const quizActive = document.getElementById('quizPage') && document.getElementById('quizPage').classList.contains('active');
+  if (window.innerWidth < 821 || !quizActive) { window.open(url, '_blank', 'noopener'); return; }
   if (!isVocabDrawerOpen()) openVocabDrawer();
   const wrap = document.getElementById('drawerDictWrap');
   const frame = document.getElementById('drawerDictFrame');
@@ -1153,7 +1018,7 @@ function _fillWordPopover(word) {
   const chips = pop.querySelector('.wp-chips');
   pop.querySelector('.wp-meaning').value = '';
   chips.innerHTML = '';
-  if (!word) { status.textContent = ''; return; }
+  if (!word) { status.innerHTML = '<span class="wp-sub">영어 단어를 입력하면 추천 뜻이 나와요.</span>'; return; }
   const lower = String(vocabCorrectTypo(word) || word).toLowerCase();
   const dup = Array.isArray(VOCAB_CACHE) ? VOCAB_CACHE.find(x => String(x.word || '').toLowerCase() === lower) : null;
   status.innerHTML = dup
@@ -1192,15 +1057,17 @@ function _positionWordPopover() {
   pop.style.left = left + 'px';
 }
 
-function showWordPopover(word, range) {
+// anchor: 선택 범위(Range) 또는 기준 요소(버튼 등). 단어가 비어 있으면 단어 입력부터 시작합니다.
+function showWordPopover(word, anchor) {
   const pop = _ensureWordPopover();
-  _wordPopRange = range ? range.cloneRange() : null;
-  pop.querySelector('.wp-word').value = word;
+  _wordPopRange = anchor ? (anchor.cloneRange ? anchor.cloneRange() : anchor) : null;
+  pop.querySelector('.wp-word').value = word || '';
   pop.style.display = 'block';
-  _fillWordPopover(word);
+  _fillWordPopover(word || '');
   _positionWordPopover();
   vocabInitTypoOnce();
   drawerEnsureLoaded();
+  if (!word) setTimeout(() => pop.querySelector('.wp-word').focus(), 0);
 }
 // 카드를 닫을 때 지문의 단어 선택도 해제합니다(휴대폰에서 선택이 남아 카드가 다시 뜨는 것 방지).
 function hideWordPopover() {
@@ -1261,3 +1128,698 @@ function initPassageWordPicker() {
   document.addEventListener('keydown', e => { if (e.key === 'Escape') hideWordPopover(); });
 }
 initPassageWordPicker();
+
+
+/* =====================================================================
+ * 단어장 페이지 목록 (검색 · 보기 탭 · 정렬 · 가리기 · 펼쳐 보기 · 이어서 보기)
+ * 데이터는 VOCAB_CACHE(학생 본인 또는 관리자가 고른 학생)를 사용합니다.
+ * ===================================================================== */
+const VP_PAGE = 80;
+const VP = { filter: 'all', sort: 'recent', hideMeaning: false, hideWord: false, query: '', shown: VP_PAGE, open: null };
+let _vpBound = false, _vpObserver = null;
+
+function _escAttr(v) { return escapeHTML(String(v == null ? '' : v)).replace(/"/g, '&quot;'); }
+function _vpPrefsKey() { return 'k2_vocab_view:' + ((CURRENT_USER && CURRENT_USER.id) || 'guest'); }
+function _vpLoadPrefs() {
+  try {
+    const o = JSON.parse(localStorage.getItem(_vpPrefsKey()) || '{}');
+    if (['all', 'learning', 'done'].includes(o.filter)) VP.filter = o.filter;
+    if (['recent', 'old', 'abc'].includes(o.sort)) VP.sort = o.sort;
+    VP.hideMeaning = !!o.hideMeaning; VP.hideWord = !!o.hideWord;
+  } catch (e) {}
+}
+function _vpSavePrefs() {
+  try { localStorage.setItem(_vpPrefsKey(), JSON.stringify({ filter: VP.filter, sort: VP.sort, hideMeaning: VP.hideMeaning, hideWord: VP.hideWord })); } catch (e) {}
+}
+
+function _vpSyncControls() {
+  document.querySelectorAll('#vpTabs .vp-tab').forEach(b => b.classList.toggle('on', b.dataset.filter === VP.filter));
+  const sort = document.getElementById('vpSort'); if (sort) sort.value = VP.sort;
+  document.querySelectorAll('#vocabPage .vp-toggle').forEach(b => {
+    b.classList.toggle('on', b.dataset.hide === 'meaning' ? VP.hideMeaning : VP.hideWord);
+  });
+}
+
+function _vpFiltered(data) {
+  const q = VP.query;
+  let list = data.filter(x => {
+    if (VP.filter === 'learning' && x.memorized) return false;
+    if (VP.filter === 'done' && !x.memorized) return false;
+    if (!q) return true;
+    return String(x.word || '').toLowerCase().includes(q) || String(x.meaning || '').toLowerCase().includes(q);
+  });
+  const num = x => Number(x.number) || 0;
+  if (VP.sort === 'recent') list.sort((a, b) => num(b) - num(a));
+  else if (VP.sort === 'old') list.sort((a, b) => num(a) - num(b));
+  else list.sort((a, b) => String(a.word || '').localeCompare(String(b.word || '')));
+  return list;
+}
+
+function _vpRowHtml(x) {
+  const w = String(x.word || '');
+  const open = VP.open === w.toLowerCase();
+  return `
+  <div class="vw-row${x.memorized ? ' done' : ''}${open ? ' open' : ''}" data-word="${_escAttr(w)}">
+    <div class="vw-num">${escapeHTML(String(x.number || ''))}</div>
+    <div class="vw-main">
+      <div class="vw-word" title="눌러서 펼치기">${escapeHTML(w)}</div>
+      <div class="vw-meaning">${escapeHTML(String(x.meaning || ''))}</div>
+    </div>
+    <label class="vw-check" title="외움 표시">
+      <input type="checkbox" class="vw-memo" ${x.memorized ? 'checked' : ''} aria-label="외움">
+      <span>외움</span>
+    </label>
+    ${open ? _vpDetailHtml() : ''}
+  </div>`;
+}
+function _vpDetailHtml() {
+  return `
+    <div class="vw-detail">
+      <div class="vw-actions">
+        <button type="button" class="vw-btn" data-act="dict">사전</button>
+        <button type="button" class="vw-btn" data-act="syn">유의어</button>
+        <button type="button" class="vw-btn" data-act="ant">반의어</button>
+        <button type="button" class="vw-btn" data-act="trg">혼동어휘</button>
+        <button type="button" class="vw-btn vw-btn-edit" data-act="edit">수정</button>
+      </div>
+      <div class="vw-related"></div>
+      <div class="vw-editbox"></div>
+    </div>`;
+}
+
+function _vpUpdateCounts(data) {
+  const done = data.filter(x => x.memorized).length;
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('vpCntAll', data.length); set('vpCntLearning', data.length - done); set('vpCntDone', done);
+}
+
+function renderVocabPage(keepShown) {
+  const box = document.getElementById('wordList');
+  if (!box) return;
+  _vpBindOnce();
+  _vpSyncControls();
+  box.classList.toggle('vp-hide-meaning', VP.hideMeaning);
+  box.classList.toggle('vp-hide-word', VP.hideWord);
+
+  const data = VOCAB_CACHE;
+  if (data && data.error) { box.innerHTML = '<div class="vw-empty">⚠️ ' + escapeHTML(data.error) + '</div>'; return; }
+  if (!Array.isArray(data)) return;
+  _vpUpdateCounts(data);
+  if (!keepShown) VP.shown = VP_PAGE;
+
+  const list = _vpFiltered(data);
+  if (!list.length) {
+    box.innerHTML = data.length === 0
+      ? '<div class="vw-empty">아직 저장한 단어가 없어요.<br><span>[+ 단어 추가] 또는 문제 풀이 중 지문의 단어를 더블클릭해서 모아 보세요.</span></div>'
+      : '<div class="vw-empty">조건에 맞는 단어가 없어요.</div>';
+  } else {
+    const rows = list.slice(0, VP.shown).map(_vpRowHtml).join('');
+    const rest = list.length - VP.shown;
+    box.innerHTML = '<div class="vw-head"><span></span><span>영어</span><span>뜻</span><span>외움</span></div>' + rows +
+      (rest > 0 ? `<button type="button" class="vw-more vw-btn" data-act="more">더 보기 (${rest}개 남음)</button>` : '');
+  }
+  box.style.display = 'block';
+  const elQuiz = document.getElementById('quiz'); if (elQuiz) elQuiz.innerHTML = '';
+  const elScore = document.getElementById('score'); if (elScore) elScore.innerText = '';
+  const elShowBtn = document.getElementById('showListBtn'); if (elShowBtn) elShowBtn.style.display = 'none';
+  _vpObserveMore();
+}
+
+// 기존 호출부 호환: 데이터 인자는 무시하고 VOCAB_CACHE 기준으로 다시 그립니다.
+function renderVocabTableFromData() { renderVocabPage(false); }
+
+// '더 보기' 버튼이 화면에 들어오면 자동으로 이어서 표시
+function _vpObserveMore() {
+  if (!('IntersectionObserver' in window)) return;
+  if (_vpObserver) _vpObserver.disconnect();
+  const more = document.querySelector('#wordList .vw-more');
+  if (!more) return;
+  _vpObserver = new IntersectionObserver(entries => {
+    if (entries.some(e => e.isIntersecting)) { VP.shown += VP_PAGE; renderVocabPage(true); }
+  }, { rootMargin: '300px 0px' });
+  _vpObserver.observe(more);
+}
+
+let _vocabSearchTimer = null;
+function vocabOnSearchInput(el) {
+  clearTimeout(_vocabSearchTimer);
+  _vocabSearchTimer = setTimeout(() => {
+    VP.query = el.value.trim().toLowerCase();
+    renderVocabPage(false);
+  }, 200);
+}
+
+function _vpFindItem(word) {
+  const lower = String(word || '').toLowerCase();
+  return Array.isArray(VOCAB_CACHE) ? VOCAB_CACHE.find(x => String(x.word || '').toLowerCase() === lower) : null;
+}
+
+function _vpSetMemorized(row, checked) {
+  const targetUser = getActiveVocabUser();
+  const item = _vpFindItem(row.dataset.word);
+  if (!targetUser || !item) return;
+  item.memorized = checked;
+  row.classList.toggle('done', checked);
+  _vpUpdateCounts(VOCAB_CACHE);
+  if (checked) { const el = document.getElementById('todayMemorized'); if (el) el.textContent = (parseInt(el.textContent, 10) || 0) + 1; }
+  google.script.run
+    .withFailureHandler(err => showToast('외움 표시 저장 실패: ' + escapeHTML(String(err)), 'error'))
+    .setWordMemorized(targetUser, item.word, checked);
+}
+
+function _vpHandleAction(row, btn) {
+  const word = row.dataset.word;
+  const related = row.querySelector('.vw-related');   // 유의어·반의어·혼동어휘 결과
+  const editBox = row.querySelector('.vw-editbox');   // 수정 입력칸 (늦게 오는 검색 결과가 덮어쓰지 않도록 분리)
+  const act = btn.dataset.act;
+  if (act === 'dict') { openDictionary(word); return; }
+  if (act === 'syn' || act === 'ant' || act === 'trg') {
+    related.style.display = 'flex';
+    // 고른 연관어는 단어 카드로 열어 바로 저장할 수 있게
+    fetchDatamuse(act, true, { word: word, resultEl: related, onPick: (w, chip) => showWordPopover(w, chip) });
+    return;
+  }
+  if (act === 'edit') {
+    const item = _vpFindItem(word) || { word: word, meaning: '' };
+    editBox.innerHTML = `
+      <div class="vw-edit">
+        <input type="text" class="vw-edit-word" value="${_escAttr(item.word)}" aria-label="단어">
+        <input type="text" class="vw-edit-meaning" value="${_escAttr(item.meaning)}" aria-label="뜻">
+        <div class="vw-edit-actions">
+          <button type="button" class="vw-btn" data-act="cancel">취소</button>
+          <button type="button" class="vw-btn vw-btn-primary" data-act="save">저장</button>
+        </div>
+      </div>`;
+    editBox.querySelector('.vw-edit-meaning').focus();
+    return;
+  }
+  if (act === 'cancel') { editBox.innerHTML = ''; return; }
+  if (act === 'save') {
+    const nw = row.querySelector('.vw-edit-word').value;
+    const nm = row.querySelector('.vw-edit-meaning').value;
+    if (!vocabQuickEdit(String(word).toLowerCase(), nw, nm)) { showToast('단어와 뜻을 모두 입력해주세요.', 'error'); return; }
+    VP.open = String(nw).trim().toLowerCase();
+    showToast('단어를 수정했어요.', 'info');
+  }
+}
+
+function _vpBindOnce() {
+  if (_vpBound) return;
+  _vpBound = true;
+  _vpLoadPrefs();
+  const box = document.getElementById('wordList');
+  box.addEventListener('change', e => {
+    if (e.target.classList.contains('vw-memo')) _vpSetMemorized(e.target.closest('.vw-row'), e.target.checked);
+  });
+  box.addEventListener('click', e => {
+    const more = e.target.closest('[data-act="more"]');
+    if (more) { VP.shown += VP_PAGE; renderVocabPage(true); return; }
+    const row = e.target.closest('.vw-row');
+    if (!row || e.target.closest('.vw-check')) return;
+    const btn = e.target.closest('button[data-act]');
+    if (btn) { _vpHandleAction(row, btn); return; }
+    if (e.target.closest('.vw-detail')) return;
+    // 가린 칸은 누르면 보이기
+    const masked = e.target.closest(box.classList.contains('vp-hide-meaning') ? '.vw-meaning' : '.vw-none') ||
+                   e.target.closest(box.classList.contains('vp-hide-word') ? '.vw-word' : '.vw-none');
+    if (masked && !masked.classList.contains('revealed')) { masked.classList.add('revealed'); return; }
+    // 그 외: 펼치기/접기
+    const key = String(row.dataset.word || '').toLowerCase();
+    const wasOpen = row.classList.contains('open');
+    document.querySelectorAll('#wordList .vw-row.open').forEach(r => {
+      r.classList.remove('open'); const d = r.querySelector('.vw-detail'); if (d) d.remove();
+    });
+    VP.open = wasOpen ? null : key;
+    if (!wasOpen) { row.classList.add('open'); row.insertAdjacentHTML('beforeend', _vpDetailHtml()); }
+  });
+
+  document.querySelectorAll('#vpTabs .vp-tab').forEach(b => b.addEventListener('click', () => {
+    VP.filter = b.dataset.filter; _vpSavePrefs(); renderVocabPage(false);
+  }));
+  const sort = document.getElementById('vpSort');
+  if (sort) sort.addEventListener('change', () => { VP.sort = sort.value; _vpSavePrefs(); renderVocabPage(false); });
+  document.querySelectorAll('#vocabPage .vp-toggle').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.hide === 'meaning') { VP.hideMeaning = !VP.hideMeaning; if (VP.hideMeaning) VP.hideWord = false; }
+    else { VP.hideWord = !VP.hideWord; if (VP.hideWord) VP.hideMeaning = false; }
+    _vpSavePrefs(); renderVocabPage(true);
+  }));
+  const addBtn = document.getElementById('btnVocabAdd');
+  if (addBtn) addBtn.addEventListener('click', () => {
+    if (CURRENT_USER && CURRENT_USER.role === 'manager' && !ADMIN_TARGET_VOCAB_USER) { showCustomAlert('단어를 추가할 학생을 먼저 선택해 주세요.'); return; }
+    showWordPopover('', addBtn);
+  });
+  // 단어 카드·미니 단어장에서 저장/수정되면 목록 갱신 (현재 보던 개수 유지)
+  document.addEventListener('vocab:changed', () => {
+    const page = document.getElementById('vocabPage');
+    if (page && page.classList.contains('active')) renderVocabPage(true);
+  });
+}
+
+
+/* =====================================================================
+ * 단어 시험 (설정 → 한 문제씩 → 결과)
+ * 방식: card(카드 넘기기) / choice(객관식 4지선다) / write(주관식)
+ * 방향: e2k(영어 → 뜻) / k2e(뜻 → 영어)
+ * 객관식 오답 보기는 학생 본인 단어장의 다른 단어에서 뽑습니다.
+ * ===================================================================== */
+const VT = { items: [], idx: 0, mode: 'choice', dir: 'e2k', correct: 0, wrong: [], answered: false, markKnown: false, choices: [] };
+const VT_DEFAULT = { scope: 'recent', recentN: 30, count: 10, mode: 'choice', dir: 'e2k', skipDone: true, markKnown: false };
+
+function _vtPrefsKey() { return 'k2_vocab_test:' + ((CURRENT_USER && CURRENT_USER.id) || 'guest'); }
+function _vtLoadPrefs() {
+  try { return Object.assign({}, VT_DEFAULT, JSON.parse(localStorage.getItem(_vtPrefsKey()) || '{}')); }
+  catch (e) { return Object.assign({}, VT_DEFAULT); }
+}
+function _vtSavePrefs(p) { try { localStorage.setItem(_vtPrefsKey(), JSON.stringify(p)); } catch (e) {} }
+function _shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+function _vtBox() { return document.getElementById('vocabStudy'); }
+
+// 시험 화면 ↔ 목록 화면 전환
+function _vtShowStudy(on) {
+  const box = _vtBox();
+  const controls = document.getElementById('vocabAddWordSection');
+  const list = document.getElementById('wordList');
+  if (box) box.style.display = on ? 'block' : 'none';
+  if (controls) controls.classList.toggle('vt-hidden', on);
+  if (list) list.classList.toggle('vt-hidden', on);
+  if (on) window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function vocabStudyExit() {
+  _vtShowStudy(false);
+  const box = _vtBox(); if (box) box.innerHTML = '';
+  renderVocabPage(true);
+}
+
+// 범위에 맞는 단어 모음
+function _vtPool(p) {
+  const data = Array.isArray(VOCAB_CACHE) ? VOCAB_CACHE.filter(x => String(x.word || '').trim() && String(x.meaning || '').trim()) : [];
+  const num = x => Number(x.number) || 0;
+  if (p.scope === 'learning') return data.filter(x => !x.memorized);
+  if (p.scope === 'visible') {
+    const visible = _vpFiltered(data);
+    return p.skipDone ? visible.filter(x => !x.memorized) : visible;
+  }
+  const base = p.skipDone ? data.filter(x => !x.memorized) : data;
+  return base.slice().sort((a, b) => num(b) - num(a)).slice(0, Math.max(1, p.recentN | 0));
+}
+
+function vocabStudyOpenSetup() {
+  if (CURRENT_USER && CURRENT_USER.role === 'manager' && !ADMIN_TARGET_VOCAB_USER) { showCustomAlert('학생을 먼저 선택해 주세요.'); return; }
+  if (!Array.isArray(VOCAB_CACHE)) { showToast('단어장을 불러오는 중이에요. 잠시 후 다시 눌러 주세요.', 'info'); return; }
+  const p = _vtLoadPrefs();
+  const box = _vtBox();
+  const radio = (name, val, label, cur) => `<label class="vt-opt"><input type="radio" name="${name}" value="${val}" ${cur === val ? 'checked' : ''}><span>${label}</span></label>`;
+  box.innerHTML = `
+    <div class="vt-card vt-setup">
+      <div class="vt-setup-head"><b>📝 단어 시험</b><button type="button" class="vt-btn" data-vt="exit">닫기</button></div>
+      <div class="vt-field">
+        <div class="vt-label">범위</div>
+        <div class="vt-opts">
+          ${radio('vtScope', 'recent', `최근 추가 <input type="number" id="vtRecentN" min="1" value="${p.recentN}">개`, p.scope)}
+          ${radio('vtScope', 'learning', '외우는 중인 단어 전체', p.scope)}
+          ${radio('vtScope', 'visible', '지금 목록에 보이는 단어 (검색·탭 기준)', p.scope)}
+        </div>
+        <label class="vt-check"><input type="checkbox" id="vtSkipDone" ${p.skipDone ? 'checked' : ''}> 외운 단어는 빼기</label>
+      </div>
+      <div class="vt-field">
+        <div class="vt-label">방식</div>
+        <div class="vt-opts vt-row">
+          ${radio('vtMode', 'card', '카드 넘기기', p.mode)}
+          ${radio('vtMode', 'choice', '객관식', p.mode)}
+          ${radio('vtMode', 'write', '주관식', p.mode)}
+        </div>
+      </div>
+      <div class="vt-field">
+        <div class="vt-label">방향</div>
+        <div class="vt-opts vt-row">
+          ${radio('vtDir', 'e2k', '영어 → 뜻', p.dir)}
+          ${radio('vtDir', 'k2e', '뜻 → 영어', p.dir)}
+        </div>
+      </div>
+      <div class="vt-field vt-inline">
+        <div class="vt-label">문제 수</div>
+        <input type="number" id="vtCount" min="1" value="${p.count}"> <span class="vt-pool-info" id="vtPoolInfo"></span>
+      </div>
+      <label class="vt-check vt-known-opt"><input type="checkbox" id="vtMarkKnown" ${p.markKnown ? 'checked' : ''}> 카드 넘기기에서 '알아요'를 누르면 외움으로 표시</label>
+      <div class="vt-start-row">
+        <button type="button" class="vt-btn vt-btn-primary vt-start" data-vt="start">시작하기</button>
+        <button type="button" class="vt-btn vt-print" data-vt="print">🖨️ 시험지 인쇄</button>
+      </div>
+      <div class="vt-print-note">인쇄: 카드 넘기기는 주관식(빈칸) 시험지로 만들어져요. 미리보기에서 정답지도 볼 수 있어요.</div>
+    </div>`;
+  const readPrefs = () => ({
+    scope: (box.querySelector('input[name="vtScope"]:checked') || {}).value || 'recent',
+    recentN: Math.max(1, parseInt(box.querySelector('#vtRecentN').value, 10) || VT_DEFAULT.recentN),
+    count: Math.max(1, parseInt(box.querySelector('#vtCount').value, 10) || VT_DEFAULT.count),
+    mode: (box.querySelector('input[name="vtMode"]:checked') || {}).value || 'choice',
+    dir: (box.querySelector('input[name="vtDir"]:checked') || {}).value || 'e2k',
+    skipDone: box.querySelector('#vtSkipDone').checked,
+    markKnown: box.querySelector('#vtMarkKnown').checked
+  });
+  const refresh = () => {
+    const pr = readPrefs();
+    const n = _vtPool(pr).length;
+    box.querySelector('#vtPoolInfo').textContent = `(범위 안 단어 ${n}개 중 ${Math.min(n, pr.count)}문제)`;
+    box.querySelector('.vt-known-opt').style.display = pr.mode === 'card' ? 'flex' : 'none';
+    box.querySelector('#vtSkipDone').closest('.vt-check').style.display = pr.scope === 'learning' ? 'none' : 'flex';
+  };
+  box.querySelectorAll('input').forEach(el => { el.addEventListener('change', refresh); el.addEventListener('input', refresh); });
+  // 범위 칸 안의 숫자 입력을 누르면 그 범위를 선택
+  box.querySelector('#vtRecentN').addEventListener('focus', () => { box.querySelector('input[name="vtScope"][value="recent"]').checked = true; refresh(); });
+  box.onclick = e => {
+    const b = e.target.closest('[data-vt]'); if (!b) return;
+    if (b.dataset.vt === 'exit') vocabStudyExit();
+    if (b.dataset.vt === 'start') { const pr = readPrefs(); _vtSavePrefs(pr); vocabStudyStart(pr); }
+    if (b.dataset.vt === 'print') { const pr = readPrefs(); _vtSavePrefs(pr); vocabStudyPrint(pr); }
+  };
+  refresh();
+  _vtShowStudy(true);
+}
+
+function vocabStudyStart(p, itemsOverride) {
+  const pool = itemsOverride || _vtPool(p);
+  if (!pool.length) { showToast('범위 안에 시험 볼 단어가 없어요.', 'error'); return; }
+  const all = Array.isArray(VOCAB_CACHE) ? VOCAB_CACHE : [];
+  if (p.mode === 'choice') {
+    const keyOf = x => String(p.dir === 'e2k' ? x.meaning : x.word).trim().toLowerCase();
+    if (new Set(all.map(keyOf)).size < 4) { showToast('객관식은 서로 다른 단어가 4개 이상 있어야 해요.', 'error'); return; }
+  }
+  Object.assign(VT, {
+    items: itemsOverride ? _shuffle(pool) : _shuffle(pool).slice(0, p.count),
+    idx: 0, mode: p.mode, dir: p.dir, correct: 0, wrong: [], answered: false, markKnown: !!p.markKnown, prefs: p
+  });
+  _vtShowStudy(true);
+  _vtRenderQuestion();
+}
+
+function _vtPrompt(item, dir) { return (dir || VT.dir) === 'e2k' ? item.word : item.meaning; }
+function _vtAnswer(item, dir) { return (dir || VT.dir) === 'e2k' ? item.meaning : item.word; }
+// 정답 1개 + 학생 단어장의 다른 단어 3개로 4지선다 보기 생성 (같은 뜻/철자는 중복 제외)
+function _vtMakeChoices(item, dir) {
+  const ans = String(_vtAnswer(item, dir)).trim();
+  const used = new Set([ans.toLowerCase()]);
+  const distract = [];
+  _shuffle(Array.isArray(VOCAB_CACHE) ? VOCAB_CACHE : []).forEach(x => {
+    const t = String(_vtAnswer(x, dir) || '').trim();
+    const k = t.toLowerCase();
+    if (distract.length < 3 && t && !used.has(k)) { used.add(k); distract.push(t); }
+  });
+  return _shuffle([ans].concat(distract));
+}
+
+function _vtRenderQuestion() {
+  const box = _vtBox();
+  const item = VT.items[VT.idx];
+  VT.answered = false;
+  const total = VT.items.length;
+  const head = `
+    <div class="vt-progress">
+      <span>${VT.idx + 1} / ${total}</span>
+      <span class="vt-score">맞힘 ${VT.correct}</span>
+      <button type="button" class="vt-btn" data-vt="quit">그만하기</button>
+    </div>
+    <div class="vt-bar"><div style="width:${Math.round(VT.idx / total * 100)}%"></div></div>`;
+  const promptCls = VT.dir === 'e2k' ? 'vt-prompt en' : 'vt-prompt ko';
+  let body = '';
+  if (VT.mode === 'card') {
+    body = `
+      <div class="${promptCls}">${escapeHTML(_vtPrompt(item))}</div>
+      <div class="vt-reveal" hidden>${escapeHTML(_vtAnswer(item))}</div>
+      <button type="button" class="vt-btn vt-btn-primary vt-wide" data-vt="flip">${VT.dir === 'e2k' ? '뜻 보기' : '단어 보기'}</button>
+      <div class="vt-judge" hidden>
+        <button type="button" class="vt-btn vt-btn-no" data-vt="dontknow">몰라요</button>
+        <button type="button" class="vt-btn vt-btn-yes" data-vt="know">알아요</button>
+      </div>`;
+  } else if (VT.mode === 'choice') {
+    VT.choices = _vtMakeChoices(item, VT.dir);
+    body = `
+      <div class="${promptCls}">${escapeHTML(_vtPrompt(item))}</div>
+      <div class="vt-choices">
+        ${VT.choices.map((c, i) => `<button type="button" class="vt-choice" data-vt="choose" data-i="${i}"><span>${'①②③④'[i]}</span>${escapeHTML(c)}</button>`).join('')}
+      </div>
+      <div class="vt-feedback"></div>`;
+  } else {
+    body = `
+      <div class="${promptCls}">${escapeHTML(_vtPrompt(item))}</div>
+      <div class="vt-write">
+        <input type="text" id="vtInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${VT.dir === 'e2k' ? '뜻을 입력하세요' : '영어 단어를 입력하세요'}">
+        <button type="button" class="vt-btn vt-btn-primary" data-vt="check">확인</button>
+      </div>
+      <div class="vt-feedback"></div>`;
+  }
+  box.innerHTML = `<div class="vt-card vt-run">${head}${body}</div>`;
+  box.onclick = _vtOnClick;
+  const inp = box.querySelector('#vtInput');
+  if (inp) {
+    inp.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      if (VT.answered) _vtNext(); else _vtCheckWrite();
+    });
+    setTimeout(() => inp.focus(), 50);
+  }
+}
+
+function _vtOnClick(e) {
+  const b = e.target.closest('[data-vt]'); if (!b) return;
+  const act = b.dataset.vt;
+  const box = _vtBox();
+  if (act === 'quit') { _vtFinish(true); return; }
+  if (act === 'next') { _vtNext(); return; }
+  if (act === 'flip') {
+    box.querySelector('.vt-reveal').hidden = false;
+    box.querySelector('.vt-judge').hidden = false;
+    b.hidden = true;
+    return;
+  }
+  if (act === 'know' || act === 'dontknow') {
+    if (VT.answered) return;
+    VT.answered = true;
+    const item = VT.items[VT.idx];
+    if (act === 'know') {
+      VT.correct++;
+      if (VT.markKnown && !item.memorized) _vtMarkMemorized(item);
+    } else VT.wrong.push(item);
+    _vtNext();
+    return;
+  }
+  if (act === 'choose') {
+    if (VT.answered) { _vtNext(); return; }
+    VT.answered = true;
+    const item = VT.items[VT.idx];
+    const ansKey = String(_vtAnswer(item)).trim().toLowerCase();
+    const picked = VT.choices[+b.dataset.i];
+    const ok = String(picked).trim().toLowerCase() === ansKey;
+    box.querySelectorAll('.vt-choice').forEach((c, i) => {
+      if (String(VT.choices[i]).trim().toLowerCase() === ansKey) c.classList.add('correct');
+      else if (c === b) c.classList.add('wrong');
+      c.classList.add('done');
+    });
+    _vtFeedback(ok, item);
+    return;
+  }
+  if (act === 'check') { if (VT.answered) _vtNext(); else _vtCheckWrite(); }
+}
+
+// 주관식 채점: 영어→뜻은 여러 뜻 중 하나와 맞거나 포함하면 정답, 뜻→영어는 철자가 같아야 정답
+function _vtCheckWrite() {
+  const box = _vtBox();
+  const inp = box.querySelector('#vtInput');
+  const ans = String(inp.value || '').trim().toLowerCase();
+  if (!ans) { inp.focus(); return; }
+  VT.answered = true;
+  const item = VT.items[VT.idx];
+  let ok;
+  if (VT.dir === 'e2k') {
+    const ms = String(item.meaning || '').toLowerCase().split(',').map(m => m.trim()).filter(Boolean);
+    ok = ms.some(m => m === ans || m.includes(ans) || ans.includes(m));
+  } else {
+    ok = ans === String(item.word || '').trim().toLowerCase();
+  }
+  inp.disabled = true;
+  inp.classList.add(ok ? 'correct' : 'wrong');
+  _vtFeedback(ok, item);
+}
+
+function _vtFeedback(ok, item) {
+  const box = _vtBox();
+  if (ok) VT.correct++; else VT.wrong.push(item);
+  const fb = box.querySelector('.vt-feedback');
+  const btn = box.querySelector('[data-vt="check"]');
+  if (btn) btn.textContent = '다음';
+  fb.innerHTML = ok
+    ? '<div class="vt-ok">⭕ 정답!</div>'
+    : `<div class="vt-no">❌ 정답: <b>${escapeHTML(_vtAnswer(item))}</b></div><button type="button" class="vt-btn vt-btn-primary vt-wide" data-vt="next">다음</button>`;
+  box.querySelector('.vt-score').textContent = '맞힘 ' + VT.correct;
+  if (ok) setTimeout(() => { if (VT.answered && VT.items[VT.idx] === item) _vtNext(); }, 700);
+  else { const nb = fb.querySelector('[data-vt="next"]'); if (nb) nb.focus(); }
+}
+
+function _vtNext() {
+  if (VT.idx + 1 >= VT.items.length) { _vtFinish(false); return; }
+  VT.idx++;
+  _vtRenderQuestion();
+}
+
+function _vtMarkMemorized(item) {
+  const targetUser = getActiveVocabUser();
+  if (!targetUser) return;
+  item.memorized = true;
+  google.script.run
+    .withFailureHandler(err => showToast('외움 표시 저장 실패: ' + escapeHTML(String(err)), 'error'))
+    .setWordMemorized(targetUser, item.word, true);
+}
+
+function _vtFinish(quit) {
+  const box = _vtBox();
+  const solved = quit ? VT.idx + (VT.answered ? 1 : 0) : VT.items.length;
+  if (solved > 0) vocabUpdateQuizStats(VT.correct, solved);
+  const pct = solved ? Math.round(VT.correct / solved * 100) : 0;
+  const wrongList = VT.wrong.length
+    ? `<div class="vt-wrong-title">틀린 단어 ${VT.wrong.length}개</div>
+       <div class="vt-wrong-list">${VT.wrong.map(x => `<div class="vt-wrong-item"><b>${escapeHTML(x.word)}</b><span>${escapeHTML(x.meaning)}</span></div>`).join('')}</div>`
+    : (solved ? '<div class="vt-perfect">🎉 모두 맞혔어요!</div>' : '');
+  box.innerHTML = `
+    <div class="vt-card vt-result">
+      <div class="vt-result-score">${VT.correct} / ${solved}<small>${solved ? pct + '점' : ''}</small></div>
+      ${wrongList}
+      <div class="vt-result-actions">
+        ${VT.wrong.length ? '<button type="button" class="vt-btn vt-btn-primary" data-vt="retryWrong">틀린 단어 다시 풀기</button>' : ''}
+        <button type="button" class="vt-btn" data-vt="again">새로 시험 보기</button>
+        <button type="button" class="vt-btn" data-vt="exit">단어 목록으로</button>
+      </div>
+    </div>`;
+  box.onclick = e => {
+    const b = e.target.closest('[data-vt]'); if (!b) return;
+    if (b.dataset.vt === 'retryWrong') vocabStudyStart(Object.assign({}, VT.prefs), VT.wrong.slice());
+    if (b.dataset.vt === 'again') vocabStudyOpenSetup();
+    if (b.dataset.vt === 'exit') vocabStudyExit();
+  };
+  document.dispatchEvent(new CustomEvent('vocab:changed', { detail: {} }));
+}
+
+(function bindVocabStudy() {
+  const btn = document.getElementById('btnVocabStudy');
+  if (btn) btn.addEventListener('click', () => {
+    const box = _vtBox();
+    if (box && box.style.display !== 'none') vocabStudyExit(); else vocabStudyOpenSetup();
+  });
+})();
+
+
+/* =====================================================================
+ * 단어 시험지 인쇄 (A4, 2단) — 기존 문제지 인쇄와 같은 미리보기 방식(#printSection)
+ * 객관식: 4지선다 / 그 외: 빈칸에 쓰기. 미리보기에서 문제지 ↔ 정답지 전환.
+ * ===================================================================== */
+let VT_PRINT = null;
+
+function vocabStudyPrint(p) {
+  const pool = _vtPool(p);
+  if (!pool.length) { showToast('범위 안에 시험지로 만들 단어가 없어요.', 'error'); return; }
+  const mode = p.mode === 'choice' ? 'choice' : 'write';
+  if (mode === 'choice') {
+    const keyOf = x => String(_vtAnswer(x, p.dir)).trim().toLowerCase();
+    if (new Set((VOCAB_CACHE || []).map(keyOf)).size < 4) { showToast('객관식은 서로 다른 단어가 4개 이상 있어야 해요.', 'error'); return; }
+  }
+  const items = _shuffle(pool).slice(0, p.count).map(it => ({
+    item: it, choices: mode === 'choice' ? _vtMakeChoices(it, p.dir) : null
+  }));
+  const user = getActiveVocabUser() || {};
+  const d = new Date();
+  VT_PRINT = { items: items, mode: mode, dir: p.dir, name: user.name || '', date: `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.` };
+  _vtRenderPrint('sheet');
+}
+
+function _vtPrintStyle() {
+  return `<style>
+    .vsheet { font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; color: #000; max-width: 190mm; margin: 0 auto; padding: 8mm 0 0; }
+    .vs-head { border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 10px; }
+    .vs-title { text-align: center; font-size: 22px; font-weight: 800; letter-spacing: 2px; margin-bottom: 8px; }
+    .vs-info { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .vs-info td { border: 1px solid #000; padding: 5px 8px; }
+    .vs-info td.k { width: 1%; white-space: nowrap; font-weight: bold; background: #f3f4f6; text-align: center; }
+    .vs-guide { font-size: 13px; margin-top: 8px; font-weight: bold; }
+    .vs-cols { column-count: 2; column-gap: 10mm; column-rule: 0.5px solid #bbb; }
+    .vs-item { break-inside: avoid; page-break-inside: avoid; display: flex; align-items: flex-end; gap: 6px; font-size: 14px; padding: 7px 0 5px; }
+    .vs-no { flex: 0 0 auto; width: 2.2em; font-weight: bold; }
+    .vs-q { flex: 0 1 auto; max-width: 58%; word-break: keep-all; overflow-wrap: break-word; }
+    .vs-q.en { font-family: "Times New Roman", serif; font-size: 15px; font-weight: bold; }
+    .vs-line { flex: 1 1 auto; min-width: 25mm; border-bottom: 1px solid #000; height: 1.2em; }
+    .vs-item.ch { display: block; padding: 6px 0 7px; }
+    .vs-item.ch .vs-qrow { display: flex; gap: 6px; align-items: baseline; }
+    .vs-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; margin: 4px 0 0 2.2em; font-size: 12.5px; }
+    .vs-opts.en { font-family: "Times New Roman", serif; font-size: 13.5px; }
+    .vs-key { column-count: 3; column-gap: 8mm; font-size: 13px; }
+    .vs-key div { break-inside: avoid; padding: 3px 0; border-bottom: 0.5px dotted #999; }
+    .vs-key b { display: inline-block; width: 2.4em; }
+  </style>`;
+}
+
+function _vtSheetHtml(withKey) {
+  const P = VT_PRINT;
+  const n = P.items.length;
+  const guide = P.mode === 'choice'
+    ? (P.dir === 'e2k' ? '※ 영어 단어의 뜻으로 알맞은 것을 고르시오.' : '※ 우리말 뜻에 알맞은 영어 단어를 고르시오.')
+    : (P.dir === 'e2k' ? '※ 영어 단어의 뜻을 쓰시오.' : '※ 우리말 뜻에 알맞은 영어 단어를 쓰시오.');
+  const promptCls = P.dir === 'e2k' ? 'vs-q en' : 'vs-q';
+  const optCls = P.dir === 'e2k' ? 'vs-opts' : 'vs-opts en';
+  const head = `
+    <div class="vs-head">
+      <div class="vs-title">${withKey ? '영어 단어 시험 · 정답' : '영어 단어 시험'}</div>
+      <table class="vs-info"><tr>
+        <td class="k">이름</td><td>${escapeHTML(P.name)}</td>
+        <td class="k">날짜</td><td>${escapeHTML(P.date)}</td>
+        <td class="k">점수</td><td style="text-align:right; width:22%;">/ ${n}</td>
+      </tr></table>
+      ${withKey ? '' : `<div class="vs-guide">${guide}</div>`}
+    </div>`;
+  if (withKey) {
+    const keys = P.items.map((x, i) => {
+      const ans = _vtAnswer(x.item, P.dir);
+      const mark = x.choices ? '①②③④'[x.choices.indexOf(String(ans).trim())] + ' ' : '';
+      return `<div><b>${i + 1}.</b>${mark}${escapeHTML(ans)}</div>`;
+    }).join('');
+    return `<div class="vsheet">${head}<div class="vs-key">${keys}</div></div>`;
+  }
+  const body = P.items.map((x, i) => {
+    const q = escapeHTML(_vtPrompt(x.item, P.dir));
+    if (x.choices) {
+      return `<div class="vs-item ch"><div class="vs-qrow"><span class="vs-no">${i + 1}.</span><span class="${promptCls}">${q}</span></div>
+        <div class="${optCls}">${x.choices.map((c, k) => `<span>${'①②③④'[k]} ${escapeHTML(c)}</span>`).join('')}</div></div>`;
+    }
+    return `<div class="vs-item"><span class="vs-no">${i + 1}.</span><span class="${promptCls}">${q}</span><span class="vs-line"></span></div>`;
+  }).join('');
+  return `<div class="vsheet">${head}<div class="vs-cols">${body}</div></div>`;
+}
+
+function _vtRenderPrint(view) {
+  if (!VT_PRINT) return;
+  const zone = document.getElementById('printSection');
+  zone.style.cssText = "display:block; position:fixed; top:0; left:0; width:100%; height:100%; background:#fff; z-index:9999; overflow-y:auto;";
+  const btn = 'border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:14px; white-space:nowrap; color:#fff; width:auto;';
+  const isKey = view === 'key';
+  zone.innerHTML = `
+    <div class="print-controls no-print" style="position:fixed; top:0; left:0; right:0; background:#374151; color:#fff; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; z-index:10000; box-shadow:0 2px 10px rgba(0,0,0,0.2); gap:10px; flex-wrap:wrap;">
+      <div style="font-size:16px; font-weight:bold;">🖥️ 단어 ${isKey ? '정답지' : '시험지'} 미리보기 (${VT_PRINT.items.length}문항)</div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button type="button" id="vsToggle" style="background:#059669; ${btn}">${isKey ? '📄 시험지 보기' : '📑 정답지 보기'}</button>
+        <button type="button" id="vsReshuffle" style="background:#7c3aed; ${btn}">🔀 다시 섞기</button>
+        <button type="button" id="vsPrint" style="background:#2563eb; ${btn}">🖨️ 인쇄하기</button>
+        <button type="button" id="vsClose" style="background:#dc2626; ${btn}">닫기</button>
+      </div>
+    </div>
+    <div class="print-controls no-print" style="height:64px;"></div>
+    ${_vtPrintStyle()}
+    ${_vtSheetHtml(isKey)}`;
+  zone.querySelector('#vsToggle').onclick = () => _vtRenderPrint(isKey ? 'sheet' : 'key');
+  zone.querySelector('#vsReshuffle').onclick = () => {
+    VT_PRINT.items = _shuffle(VT_PRINT.items).map(x => ({ item: x.item, choices: x.choices ? _vtMakeChoices(x.item, VT_PRINT.dir) : null }));
+    _vtRenderPrint(view);
+  };
+  zone.querySelector('#vsPrint').onclick = () => window.print();
+  zone.querySelector('#vsClose').onclick = () => closePrintPreview();
+}
