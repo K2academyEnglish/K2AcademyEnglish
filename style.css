@@ -1402,3 +1402,41 @@
   .question-card.online-open > .online-box > .op-right { grid-column: 2; margin-top: 15px; }
   .question-card.online-open > .q-header-flex { margin-top: 2px; }
 }
+
+/* [휴대폰·태블릿 세로] 온라인 보기: 겹친 여백을 걷어 한 줄에 더 많은 글자가 들어가게 합니다.
+ * 지문 글자 크기는 student-quiz.js의 fitOnlineViewToScreen()이 화면 높이에 맞춰 조정합니다(15px→최소 12px).
+ */
+@media screen and (max-width: 819px) {
+  body > #quizPage.panel { padding-left: 10px !important; padding-right: 10px !important; }
+  .question-card.online-open { padding: 10px !important; }
+  .question-card.online-open > .online-box { margin-top: 10px; }
+  .question-card.online-open > .online-box > .op-left,
+  .question-card.online-open > .online-box > .op-right {
+    padding: 0; background: transparent; border: 0; border-radius: 0;
+  }
+  .question-card.online-open > .online-box > .op-right { margin-top: 10px; }
+  .online-box .op-question { font-size: 15px; margin-bottom: 8px; line-height: 1.4; }
+  .online-box .op-box { margin-bottom: 8px; }
+  .online-box .op-passage { padding: 8px 10px; line-height: 1.5; }
+  .online-box .op-opt { padding: 8px 10px; margin: 5px 0; font-size: 14px; }
+}
+
+/* 온라인 보기 글자 크기 버튼 (A− / 크기 / A+ / 기본)
+ * 전역 button 스타일(모바일 !important 포함)을 덮어쓰기 위해 #quizPage를 붙여 우선순위를 높입니다.
+ */
+.online-box .op-font-bar {
+  display: flex; align-items: center; justify-content: flex-end; gap: 4px;
+  margin: -4px 0 8px; font-family: var(--font-base); font-size: 12px; color: #64748b;
+}
+.online-box .op-font-title { margin-right: 2px; }
+.online-box .op-font-size { min-width: 2.6em; text-align: center; font-weight: bold; color: #334155; }
+#quizPage .online-box .op-font-bar button.op-font-btn {
+  width: auto !important; height: 28px !important; min-width: 34px;
+  padding: 0 8px !important; margin: 0 !important;
+  font-size: 13px !important; font-weight: bold; line-height: 1 !important;
+  background: #fff !important; color: #334155 !important;
+  border: 1px solid #cbd5e1 !important; border-radius: 6px !important; cursor: pointer;
+}
+#quizPage .online-box .op-font-bar button.op-font-btn:hover { background: #f1f5f9 !important; }
+#quizPage .online-box .op-font-bar button.op-font-reset { font-weight: normal; margin-left: 4px !important; }
+#quizPage .online-box .op-font-bar button.op-font-reset.active { background: #eff6ff !important; border-color: #2b6cb0 !important; color: #1e40af !important; }
