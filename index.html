@@ -538,34 +538,40 @@ border-top: 2px solid #2b6cb0;">
 <!-- ✅ 우측 단어장 팝업(FAB + Drawer) -->
 <button id="btnVocabDrawerFab" type="button" class="fab-vocab" title="단어장 열기">단어</button>
 <div id="drawerOverlay" class="drawer-overlay"></div>
-<aside id="vocabDrawer" class="drawer">
+<aside id="vocabDrawer" class="drawer vocab-dock" aria-label="미니 단어장">
   <div class="drawer-head">
-    <div style="font-weight:800;">단어 검색</div>
+    <div style="font-weight:800;">📖 미니 단어장</div>
     <button id="btnVocabDrawerClose" type="button" class="drawer-close">닫기</button>
   </div>
 
   <div class="drawer-body">
+    <div class="vd-tip">지문에서 단어를 <b>더블클릭</b>(휴대폰은 <b>길게 누르기</b>)하면 바로 저장할 수 있어요.</div>
+
     <div class="drawer-section">
-      <div class="drawer-label">사전 검색</div>
+      <div class="drawer-label">단어 추가</div>
       <div class="drawer-row">
-        <input id="drawerDictWord" type="text" placeholder="예: resilient">
-        <button id="btnDrawerDict" type="button" class="btn-ghost" style="width:auto; padding:10px 12px;">검색</button>
+        <input id="drawerWord" type="text" placeholder="영어 단어" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <button id="btnDrawerDict" type="button" class="vd-btn vd-btn-ghost">사전</button>
       </div>
-      
-      <div class="drawer-dict-wrap" style="width:100%; height:260px; border:1px solid #d1d5db; margin-top:8px; border-radius:10px;">
-        <iframe id="drawerDictFrame" style="width:100%; height:100%; border:none;"></iframe>
+      <div id="drawerWordStatus" class="vd-status"></div>
+      <div class="drawer-row">
+        <input id="drawerMeaning" type="text" placeholder="뜻 (추천 뜻을 누르거나 직접 입력)" autocomplete="off">
+        <button id="btnDrawerSave" type="button" class="vd-btn vd-btn-primary">저장</button>
+      </div>
+      <div id="drawerSaveStatus" class="drawer-muted"></div>
+
+      <div id="drawerDictWrap" class="vd-dict" style="display:none;">
+        <div class="vd-dict-head">
+          <span id="drawerDictTitle">네이버 사전</span>
+          <button id="btnDrawerDictClose" type="button" class="vd-btn vd-btn-ghost">접기</button>
+        </div>
+        <iframe id="drawerDictFrame" title="네이버 영어사전"></iframe>
       </div>
     </div>
 
     <div class="drawer-section">
-      <div class="drawer-label">빠른 저장</div>
-      <div class="drawer-row">
-        <input id="drawerWord" type="text" placeholder="단어(영어)">
-        <input id="drawerMeaning" type="text" placeholder="뜻(한글)">
-      </div>
-      <div id="drawerWordStatus" style="font-size:13px; margin-top:4px; margin-bottom:6px;"></div>
-      <button id="btnDrawerSave" type="button">단어 저장</button>
-      <div id="drawerSaveStatus" class="drawer-muted"></div>
+      <div class="drawer-label">이번에 저장한 단어 <span id="drawerSessionCount" class="vd-count">0</span></div>
+      <div id="drawerSessionList" class="vd-list"></div>
     </div>
   </div>
 </aside>
