@@ -657,8 +657,16 @@ function gradeAll(onSuccessCallback, forceCompleteStatus){
         sessionId: activeSessionId, 
         filters: CURRENT_FILTERS || undefined,
         answers: collectedAnswers,
-        isComplete: isCompleteFinal 
+        isComplete: isCompleteFinal,
+        attemptId: newAttemptId()
       };
+
+      // [OMR 과제] 채점은 이미 화면에서 끝났으므로 서버 응답을 기다리지 않고 바로 다음 단계로 진행합니다.
+      if (onSuccessCallback && typeof onSuccessCallback === 'function') {
+          enqueueAttempt(payload);
+          onSuccessCallback({ ok: true, queued: true, sessionId: activeSessionId });
+          return;
+      }
 
       const isClickEvent = (onSuccessCallback && typeof onSuccessCallback === 'object' && onSuccessCallback.type === 'click');
 
@@ -708,7 +716,8 @@ function gradeAll(onSuccessCallback, forceCompleteStatus){
 let WRONG_STATS = [];
 let WRONG_SELECTED = new Set();
 
-function loadWrongStats(){
+function loadWrongStats(){ return runAfterAttemptsSaved(_loadWrongStatsNow); }
+function _loadWrongStatsNow(){
   if(!CURRENT_USER) return;
 
   // [수정] 이미 불러온 데이터가 있으면 서버 호출 없이 바로 그리고 종료
@@ -1111,7 +1120,8 @@ function closeQuestionMap(){
     if(o) o.style.display = 'none';
 }
 
-function loadMyAssignments(){
+function loadMyAssignments(){ return runAfterAttemptsSaved(_loadMyAssignmentsNow); }
+function _loadMyAssignmentsNow(){
   const listActive = document.getElementById('assignmentList');
   const listDone = document.getElementById('completedAssignmentList');
   
@@ -1180,7 +1190,8 @@ function renderAssignmentList(container, data, isCompleted) {
 }
 
 // 과제 시작하기
-function startAssignment(id, mode){
+function startAssignment(id, mode){ return runAfterAttemptsSaved(() => _startAssignmentNow(id, mode)); }
+function _startAssignmentNow(id, mode){
   CURRENT_ASSIGNMENT_ID = id;
   CURRENT_SESSION = id; 
   
@@ -1654,21 +1665,12 @@ function updateOMRFooterButtons(isReviewMode, isRetry, wrongCount, assignmentId,
           const btn = this;
           if (btn.disabled) return; // 중복 클릭 방지
           
-          // 1. 제출 버튼 물리적 잠금 (시각적 피드백 제공)
+          // 1. 중복 클릭 방지
           btn.disabled = true;
-          btn.textContent = '⏳ 서버 저장 중...';
-          btn.style.opacity = '0.7';
-          btn.style.cursor = 'not-allowed';
           
-          // 2. 백그라운드 채점 안내 메시지 출력
-          showToast('⏳ 답안을 서버에 저장하고 채점 중입니다...', 'info');
-          
-          // 3. 채점 엔진 실행
+          // 2. 화면에서 즉시 채점하고, 서버 저장은 백그라운드 큐가 순서대로 처리합니다.
           gradeAll(function(res) {
-              // 4. 서버 저장 완료(1~2초 뒤) 시 성공 메시지 출력
-              showToast('✅ 채점이 완료되었습니다. 오답을 다시 풀어보세요.', 'success');
-              
-              // 5. 무거운 화면 새로고침 없이, 그 자리에서 즉시 오답 잠금 해제 (연속 풀이 가능)
+              // 3. 화면 새로고침 없이 그 자리에서 오답 잠금 해제 (연속 풀이 가능)
               enterInstantRetryMode(assignmentId, qs);
           });
       }));
@@ -1823,6 +1825,9 @@ function enterInstantRetryMode(assignmentId, qs) {
     }
 }
 function startRetryAssignment(id, qidsInput, isReviewMode) {
+  return runAfterAttemptsSaved(() => _startRetryAssignmentNow(id, qidsInput, isReviewMode));
+}
+function _startRetryAssignmentNow(id, qidsInput, isReviewMode) {
   CURRENT_ASSIGNMENT_ID = id;
   CURRENT_SESSION = id;
 
@@ -1852,3 +1857,155 @@ function startRetryAssignment(id, qidsInput, isReviewMode) {
       showCustomAlert('과제 로드 실패: ' + err);
   }).loadRetryData(CURRENT_USER, qids, id, 'omr'); 
 }
+
+
+/* ===================== 답안 백그라운드 저장 큐 =====================
+ * - 제출 답안을 브라우저(localStorage)에 먼저 보관한 뒤 서버로 순서대로 전송합니다.
+ * - 전송 실패 시 자동 재시도하며, 새로고침/재접속 후에도 남은 답안을 다시 보냅니다.
+ * - 서버는 attemptId로 중복 전송을 무시하므로 같은 답안이 두 번 기록되지 않습니다.
+ */
+const ATTEMPT_QUEUE_KEY = 'k2_pending_attempts';
+const ATTEMPT_RETRY_DELAYS = [2000, 5000, 10000, 20000];
+const ATTEMPT_MAX_TOTAL_TRIES = 12;
+let ATTEMPT_MEM_QUEUE = [];
+let ATTEMPT_SAVING = false;
+let ATTEMPT_RETRY_IDX = 0;
+let ATTEMPT_RETRY_TIMER = null;
+let ATTEMPT_WAITERS = [];
+
+function newAttemptId() {
+  return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+}
+function _readAttemptQueue() {
+  try {
+    const raw = localStorage.getItem(ATTEMPT_QUEUE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) { return ATTEMPT_MEM_QUEUE.slice(); }
+}
+function _writeAttemptQueue(q) {
+  ATTEMPT_MEM_QUEUE = q.slice();
+  try {
+    if (q.length) localStorage.setItem(ATTEMPT_QUEUE_KEY, JSON.stringify(q));
+    else localStorage.removeItem(ATTEMPT_QUEUE_KEY);
+  } catch (e) {}
+}
+function hasPendingAttempts() { return _readAttemptQueue().length > 0; }
+
+function enqueueAttempt(payload) {
+  const q = _readAttemptQueue();
+  q.push(payload);
+  _writeAttemptQueue(q);
+  ATTEMPT_RETRY_IDX = 0;
+  if (ATTEMPT_RETRY_TIMER) { clearTimeout(ATTEMPT_RETRY_TIMER); ATTEMPT_RETRY_TIMER = null; }
+  updateAttemptSaveBadge();
+  flushAttemptQueue();
+}
+
+function _resolveAttemptWaiters(saved) {
+  const waiters = ATTEMPT_WAITERS; ATTEMPT_WAITERS = [];
+  waiters.forEach(fn => { try { fn(saved); } catch (e) {} });
+}
+
+function flushAttemptQueue() {
+  if (ATTEMPT_SAVING) return;
+  const q = _readAttemptQueue();
+  updateAttemptSaveBadge();
+  if (!q.length) { _resolveAttemptWaiters(true); return; }
+  if (!hasGsRun()) return;
+
+  ATTEMPT_SAVING = true;
+  const item = q[0];
+  const onFail = (msg) => {
+    ATTEMPT_SAVING = false;
+    // 계속 실패하는 답안(예: 삭제된 과제)은 무한 재시도하지 않도록 정리합니다.
+    const cur = _readAttemptQueue();
+    const head = cur.find(x => x.attemptId === item.attemptId);
+    if (head) {
+      head._tries = (head._tries || 0) + 1;
+      if (head._tries >= ATTEMPT_MAX_TOTAL_TRIES) {
+        console.error('답안 저장 포기:', head, msg);
+        _writeAttemptQueue(cur.filter(x => x.attemptId !== item.attemptId));
+        showToast('⚠️ 일부 답안을 저장하지 못했습니다: ' + escapeHTML(String(msg || '')), 'error');
+        ATTEMPT_RETRY_IDX = 0;
+        flushAttemptQueue();
+        return;
+      }
+      _writeAttemptQueue(cur);
+    }
+    if (ATTEMPT_RETRY_IDX < ATTEMPT_RETRY_DELAYS.length) {
+      const delay = ATTEMPT_RETRY_DELAYS[ATTEMPT_RETRY_IDX++];
+      updateAttemptSaveBadge('retry');
+      ATTEMPT_RETRY_TIMER = setTimeout(() => { ATTEMPT_RETRY_TIMER = null; flushAttemptQueue(); }, delay);
+    } else {
+      // 이번 접속에서는 재시도를 멈추고, 다음 제출/새로고침 때 다시 보냅니다.
+      ATTEMPT_RETRY_IDX = 0;
+      updateAttemptSaveBadge('fail');
+      showToast('⚠️ 답안 저장이 지연되고 있습니다. 인터넷 연결을 확인해 주세요. (자동 재전송 예정)', 'error');
+      _resolveAttemptWaiters(false);
+    }
+  };
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res || res.ok !== true) { onFail(res && res.msg); return; }
+      ATTEMPT_SAVING = false;
+      ATTEMPT_RETRY_IDX = 0;
+      _writeAttemptQueue(_readAttemptQueue().filter(x => x.attemptId !== item.attemptId));
+      WRONG_STATS = []; // 오답노트가 최신 기록을 다시 불러오도록 캐시 비움
+      flushAttemptQueue();
+    })
+    .withFailureHandler(err => onFail(err))
+    .logAttempt(item);
+}
+
+// 저장 대기 중인 답안이 서버에 반영될 때까지 기다립니다. (실패해도 최대 20초 후 진행)
+function whenAttemptsSaved() {
+  if (!hasPendingAttempts()) return Promise.resolve(true);
+  return new Promise(resolve => {
+    let done = false;
+    const finish = v => { if (!done) { done = true; resolve(v); } };
+    ATTEMPT_WAITERS.push(finish);
+    setTimeout(() => finish(false), 20000);
+    if (ATTEMPT_RETRY_TIMER) { clearTimeout(ATTEMPT_RETRY_TIMER); ATTEMPT_RETRY_TIMER = null; }
+    flushAttemptQueue();
+  });
+}
+
+// 과제 목록·결과처럼 방금 제출한 답안이 반영되어야 하는 화면은 저장 완료 후 엽니다.
+function runAfterAttemptsSaved(fn) {
+  if (!hasPendingAttempts()) return fn();
+  const loadEl = document.getElementById('loadingOverlay');
+  if (loadEl) {
+    loadEl.querySelector('.loading-text').innerHTML = '제출한 답안을 저장하는 중...';
+    loadEl.classList.add('active');
+  }
+  whenAttemptsSaved().then(() => {
+    if (loadEl) loadEl.classList.remove('active');
+    fn();
+  });
+}
+
+// 화면 좌측 하단 저장 상태 표시
+function updateAttemptSaveBadge(state) {
+  const pending = _readAttemptQueue().length;
+  let badge = document.getElementById('attemptSaveBadge');
+  if (!pending) { if (badge) badge.style.display = 'none'; return; }
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.id = 'attemptSaveBadge';
+    badge.className = 'no-print';
+    badge.style.cssText = 'position:fixed; left:16px; bottom:80px; z-index:9998; padding:8px 12px; border-radius:999px; font-size:13px; font-weight:bold; color:#fff; box-shadow:0 2px 8px rgba(0,0,0,0.15); pointer-events:none;';
+    document.body.appendChild(badge);
+  }
+  badge.style.display = 'block';
+  if (state === 'fail') { badge.style.background = '#dc2626'; badge.textContent = '⚠️ 답안 저장 대기 중 (' + pending + ')'; }
+  else if (state === 'retry') { badge.style.background = '#d97706'; badge.textContent = '↻ 답안 재전송 중...'; }
+  else { badge.style.background = '#2b6cb0'; badge.textContent = '💾 답안 저장 중...'; }
+}
+
+// 저장 전에 창을 닫으려 하면 경고 (남은 답안은 다음 접속 때 자동 재전송됩니다)
+window.addEventListener('beforeunload', function (e) {
+  if (ATTEMPT_SAVING || hasPendingAttempts()) { e.preventDefault(); e.returnValue = ''; }
+});
+// 이전 접속에서 못 보낸 답안 재전송
+setTimeout(flushAttemptQueue, 1500);
