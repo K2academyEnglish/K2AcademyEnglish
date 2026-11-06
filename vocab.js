@@ -89,14 +89,20 @@ function vocabLoadWordList(forceReload){
       return;
   }
 
-  // 2. 서버에서 단어 목록 로드
+  // 2. 로그인 직후 미리 받기가 진행 중이면 그 결과를 기다립니다(중복 요청 방지)
+  if(!forceReload && typeof VOCAB_PREFETCH !== 'undefined' && VOCAB_PREFETCH && targetUser === CURRENT_USER) {
+    const box = document.getElementById('wordList');
+    if (box) box.innerHTML = inlineLoadingHTML('단어장을 펼치는 중...');
+    VOCAB_PREFETCH.then(() => { if (getActiveVocabUser() === targetUser) vocabLoadWordList(); });
+    return;
+  }
+
+  // 3. 서버에서 단어 목록 로드 (화면 전체를 막지 않고 목록 자리에만 로딩 표시)
   if(!hasGsRun()){ showCustomAlert('서버 연결에 문제가 있습니다.'); return; }
 
-  const loadEl = document.getElementById('loadingOverlay');
-  if(loadEl) {
-    loadEl.querySelector('.loading-text').innerHTML = '단어장을 펼치는 중...';
-    loadEl.classList.add('active');
-  }
+  const loadEl = null;
+  const listBox = document.getElementById('wordList');
+  if (listBox) { listBox.style.display = 'block'; listBox.innerHTML = inlineLoadingHTML('단어장을 펼치는 중...'); }
 
   const statsEl = document.getElementById('vocabStats');
   const addSecEl = document.getElementById('vocabAddWordSection');
@@ -107,6 +113,7 @@ function vocabLoadWordList(forceReload){
 
   google.script.run.withSuccessHandler(function(data) {
     if(loadEl) loadEl.classList.remove('active');
+    if (getActiveVocabUser() !== targetUser) return; // 그 사이 학생 변경/로그아웃
     VOCAB_CACHE = data; 
     renderVocabTableFromData(data);
   }).withFailureHandler(err => {
@@ -628,7 +635,7 @@ function vocabUpdateStats(){
     if(memoEl) memoEl.innerText = todayMemorized;
     if(qEl) qEl.innerText = todayQuiz;
     if(cEl) cEl.innerText = todayCorrect;
-  }).getDailyLogs(targetUser);
+  }).getDailyLogs(targetUser, kstDateStr); // 오늘 기록만 받아 전송량을 줄입니다
 }
   
 function vocabUpdateQuizStats(correct, total){
