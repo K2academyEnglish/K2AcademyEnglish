@@ -1278,9 +1278,111 @@ function generateOnlineViewHtml(q) {
     const passageHtml = passages.length
         ? `<div class="passage-wrap op-passage">${passages.join('<div style="height:12px;"></div>')}</div>`
         : '';
-    return `<div class="op-left">${questionHtml}${passageHtml}</div>` +
+    const fontBar = '<div class="op-font-bar">' +
+        '<span class="op-font-title">글자 크기</span>' +
+        '<button type="button" class="op-font-btn" data-font="-" aria-label="글자 작게">A−</button>' +
+        '<span class="op-font-size">15</span>' +
+        '<button type="button" class="op-font-btn" data-font="+" aria-label="글자 크게">A+</button>' +
+        '<button type="button" class="op-font-btn op-font-reset" data-font="auto">기본</button>' +
+        '</div>';
+    return `<div class="op-left">${fontBar}${questionHtml}${passageHtml}</div>` +
            (optionsHtml ? `<div class="op-right">${optionsHtml}</div>` : '');
 }
+
+/* [휴대폰] 온라인 보기의 질문+지문이 한 화면에 들어오도록 지문 글자 크기를 15px → 최소 12px까지 줄입니다.
+ * 화면 폭 820px 이상(PC·태블릿 가로)은 좌우 배치이므로 적용하지 않습니다.
+ * 반환값: 휴대폰 맞춤을 적용했으면 true
+ */
+const ONLINE_FONT_MAX = 15, ONLINE_FONT_MIN = 12;
+
+/* 학생이 A−/A+로 정한 글자 크기 (기기 브라우저에 학생 ID별로 저장, 서버 저장 없음) */
+const ONLINE_FONT_STEP = 0.5, ONLINE_FONT_LIMIT_MIN = 11, ONLINE_FONT_LIMIT_MAX = 22;
+function _onlineFontKey() { return 'k2_online_font:' + ((CURRENT_USER && CURRENT_USER.id) || 'guest'); }
+function getSavedOnlineFont() {
+    try {
+        const v = parseFloat(localStorage.getItem(_onlineFontKey()));
+        return (v >= ONLINE_FONT_LIMIT_MIN && v <= ONLINE_FONT_LIMIT_MAX) ? v : null;
+    } catch (e) { return null; }
+}
+function saveOnlineFont(v) {
+    try {
+        if (v == null) localStorage.removeItem(_onlineFontKey());
+        else localStorage.setItem(_onlineFontKey(), String(v));
+    } catch (e) {}
+}
+// 지문·질문 글자 크기 적용 (size가 null이면 기본 스타일로 되돌림)
+function applyOnlineFont(box, size) {
+    box.querySelectorAll('.op-passage, .op-question').forEach(el => { el.style.fontSize = size == null ? '' : size + 'px'; });
+    updateOnlineFontLabel(box);
+}
+function updateOnlineFontLabel(box) {
+    const label = box.querySelector('.op-font-size');
+    const target = box.querySelector('.op-passage') || box.querySelector('.op-question');
+    if (label && target) label.textContent = String(parseFloat(getComputedStyle(target).fontSize));
+    const reset = box.querySelector('.op-font-reset');
+    if (reset) reset.classList.toggle('active', getSavedOnlineFont() == null);
+}
+function changeOnlineFont(card, box, action) {
+    if (action === 'auto') {
+        saveOnlineFont(null);
+        applyOnlineFont(box, null);
+        fitOnlineViewToScreen(card, box, false);
+        return;
+    }
+    const target = box.querySelector('.op-passage') || box.querySelector('.op-question');
+    const current = getSavedOnlineFont() || (target ? parseFloat(getComputedStyle(target).fontSize) : ONLINE_FONT_MAX);
+    let next = current + (action === '+' ? ONLINE_FONT_STEP : -ONLINE_FONT_STEP);
+    next = Math.min(ONLINE_FONT_LIMIT_MAX, Math.max(ONLINE_FONT_LIMIT_MIN, Math.round(next * 2) / 2));
+    saveOnlineFont(next);
+    applyOnlineFont(box, next);
+}
+
+function fitOnlineViewToScreen(card, box, scrollToTop) {
+    const left = box.querySelector('.op-left');
+    const passage = box.querySelector('.op-passage');
+    if (!left) return false;
+    const saved = getSavedOnlineFont();
+    const isPhone = window.innerWidth < 820;
+    // 학생이 정한 크기가 있으면 자동 맞춤 대신 그 크기를 사용
+    if (saved != null) {
+        applyOnlineFont(box, saved);
+    } else if (!isPhone) {
+        applyOnlineFont(box, null);
+    }
+    if (!isPhone) return false;
+    const header = document.getElementById('globalHeader');
+    const footer = document.getElementById('globalFooter');
+    const visible = el => el && getComputedStyle(el).display !== 'none';
+    const headerH = visible(header) ? header.offsetHeight : 0;
+    const footerH = visible(footer) ? footer.offsetHeight : 0;
+    const viewH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    const avail = viewH - headerH - footerH - 16;
+
+    if (passage && saved == null) {
+        let size = ONLINE_FONT_MAX;
+        passage.style.fontSize = size + 'px';
+        while (left.offsetHeight > avail && size > ONLINE_FONT_MIN) {
+            size -= 0.5;
+            passage.style.fontSize = size + 'px';
+        }
+        updateOnlineFontLabel(box);
+    }
+    if (scrollToTop) {
+        const top = left.getBoundingClientRect().top + window.scrollY - headerH - 8;
+        window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    }
+    return true;
+}
+// 화면 회전/크기 변경 시 열려 있는 온라인 보기 다시 맞춤
+let _onlineFitTimer = null;
+window.addEventListener('resize', () => {
+    clearTimeout(_onlineFitTimer);
+    _onlineFitTimer = setTimeout(() => {
+        const card = document.querySelector('.question-card.online-open');
+        const box = card && card.querySelector('.online-box');
+        if (box && box.style.display !== 'none') fitOnlineViewToScreen(card, box, false);
+    }, 200);
+});
 
 // 온라인 보기의 선택지 ↔ OMR 버튼 양방향 동기화 (카드당 1회 연결)
 function bindOnlinePaper(card, box, idx) {
@@ -1296,12 +1398,17 @@ function bindOnlinePaper(card, box, idx) {
     };
     if (!box.dataset.bound) {
         box.dataset.bound = 'true';
+        box.querySelectorAll('img').forEach(img => img.addEventListener('load', () => {
+            if (card.classList.contains('online-open')) fitOnlineViewToScreen(card, box, false);
+        }));
         const choose = (opt) => {
             const radio = card.querySelector(`.omr-options-wrap input[name="${radioName}"][value="${opt.dataset.opt}"]`);
             if (radio && !radio.disabled) radio.click(); // 기존 OMR 클릭 처리(선택/해제)를 그대로 사용
             sync();
         };
         box.addEventListener('click', e => {
+            const fontBtn = e.target.closest('[data-font]');
+            if (fontBtn) { changeOnlineFont(card, box, fontBtn.dataset.font); return; }
             const opt = e.target.closest('.op-opt');
             if (opt) choose(opt);
         });
@@ -1495,7 +1602,8 @@ function renderOMRSheet(qs, history, isReviewMode, assignmentId) {
             targetBox.style.display = 'block';
             card.classList.add('online-open');
             bindOnlinePaper(card, targetBox, idx);
-            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // 휴대폰: 질문+지문이 한 화면에 들어오도록 글자 크기 조정 후 질문 위치로 이동
+            if (!fitOnlineViewToScreen(card, targetBox, true)) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } catch (err) { showCustomAlert('문항 로드 실패: ' + err); }
         finally { this.disabled = false; this.textContent = previousText; }
     };
