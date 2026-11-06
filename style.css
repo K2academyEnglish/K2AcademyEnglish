@@ -1331,92 +1331,74 @@
   body.admin-create-mode .maker-content { overflow: visible; }
 }
 
-/* ===================== 과제 OMR '온라인' 보기: 실제 모의고사 시험지 형태 =====================
- * 실제 모의고사 한 단(段)과 같은 글자 수(영문 한 줄 약 56~58자)가 되도록 너비를 em 단위로 고정합니다.
- * PC·태블릿 가로(820px 이상): 왼쪽 시험지 / 오른쪽 OMR·해설로 나란히 배치
- * 그보다 좁은 화면: 시험지가 OMR 아래에 펼쳐짐
+/* ===================== 과제 OMR '온라인' 보기 =====================
+ * 디자인은 기존 온라인 보기(연한 배경 박스, 흰 지문 박스, 굵은 질문, 테두리 선택지 버튼)를 유지합니다.
+ * PC·태블릿 가로(820px 이상): 왼쪽 질문·지문 / 오른쪽 번호·OMR·선택지·해설
+ * 지문 칸 너비는 실제 모의고사 한 단과 같은 글자 수(영문 한 줄 약 56자)로 제한합니다.
  */
 .online-box { margin-top: 15px; }
-
-.exam-paper {
-  font-size: 16.5px;
-  width: 25.4em;                 /* 번호 칸 1.9em + 본문 23.5em (영문 한 줄 약 56자) */
-  max-width: calc(100% - 2.2em - 2px);
-  box-sizing: content-box;
-  margin: 0 auto;
-  padding: 1.1em;
-  background: #fff;
-  border: 1px solid #d1d5db;
-  color: #111;
-  font-family: "Times New Roman", "Batang", "바탕", "AppleMyungjo", "Nanum Myeongjo", serif;
-  line-height: 1.62;
-  text-align: justify;
-  text-justify: inter-word;
-  word-break: keep-all;
-  overflow-wrap: break-word;
-  hyphens: none;
+.online-box .op-left,
+.online-box .op-right {
+  padding: 15px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 15px;
 }
-.exam-paper .ep-q { position: relative; padding-left: 1.9em; }
-.exam-paper .ep-num {
-  position: absolute; left: 0; top: -0.06em;
-  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
-  font-weight: 800; font-size: 1.15em; letter-spacing: -0.02em;
+.online-box .op-right { margin-top: 10px; }
+.online-box .op-passage {
+  background: #fff; border: 1px solid #e5e7eb; padding: 12px; border-radius: 8px;
+  font-family: 'Times New Roman', serif; font-size: 15px; line-height: 1.6;
+  word-break: keep-all; overflow-wrap: break-word;
 }
-.exam-paper .ep-indent,
-.exam-paper .ep-passage,
-.exam-paper .ep-options,
-.exam-paper .ep-note { margin-left: 1.9em; }
-.exam-paper .ep-passage { margin-top: 0.45em; }
-.exam-paper .ep-par + .ep-par { margin-top: 0.6em; }
-.exam-paper u { text-underline-offset: 2px; }
-.exam-paper .exam-q-box {
-  border: 1px solid #111; border-radius: 0; background: #fff;
-  padding: 0.45em 0.7em; margin: 0.5em 0;
-  font-family: inherit; font-size: 1em !important; font-weight: normal !important;
-  line-height: 1.55 !important; color: #111 !important; text-align: justify;
-}
-.exam-paper img { max-width: 100% !important; height: auto !important; display: block; margin: 0.4em auto; object-fit: contain; }
-.exam-paper table { font-size: 0.9em; text-align: left; }
-
-/* 선택지: 한 줄에 하나, 줄바꿈 시 번호 뒤로 들여쓰기 (실제 시험지와 동일) */
-.exam-paper .ep-options { margin-top: 0.55em; text-align: left; }
-.exam-paper .ep-opt {
-  display: flex; gap: 0.3em; align-items: baseline;
-  margin: 0 -0.3em; padding: 0.06em 0.3em;
-  border-radius: 4px; cursor: pointer; line-height: 1.5;
+.online-box .op-question { font-size: 15px; font-weight: bold; margin-bottom: 10px; color: #1e293b; line-height: 1.5; }
+.online-box .op-left > :last-child { margin-bottom: 0; }
+.online-box .op-box { margin-bottom: 12px; }
+.online-box img { max-width: 100% !important; height: auto !important; object-fit: contain; display: block; margin: 8px auto; }
+.online-box .op-opt {
+  display: flex; align-items: baseline;
+  padding: 10px; margin: 6px 0;
+  border: 1px solid #d1d5db; border-radius: 8px;
+  background: #fff; cursor: pointer; transition: all 0.2s;
+  font-size: 15px; line-height: 1.45;
   -webkit-tap-highlight-color: transparent;
 }
-.exam-paper .ep-opt:hover { background: #f1f5f9; }
-.exam-paper .ep-opt:focus-visible { outline: 2px solid #2b6cb0; outline-offset: 1px; }
-.exam-paper .ep-sym { flex: 0 0 auto; }
-.exam-paper .ep-opt-text { flex: 1 1 auto; min-width: 0; }
-.exam-paper .ep-opt.selected { background: #dbeafe; }
-.exam-paper .ep-opt.selected .ep-sym { color: #1d4ed8; font-weight: bold; }
-.exam-paper .ep-opt.locked { cursor: default; }
-.exam-paper .ep-opt.locked:hover { background: transparent; }
-.exam-paper .ep-opt.locked.selected { background: #e5e7eb; }
-.exam-paper .ep-note { margin-top: 0.6em; font-family: var(--font-base); font-size: 0.8em; color: #64748b; }
+.online-box .op-opt:first-child { margin-top: 0; }
+.online-box .op-opt:last-child { margin-bottom: 0; }
+.online-box .op-opt:hover { border-color: #94a3b8; }
+.online-box .op-opt:focus-visible { outline: 2px solid #2b6cb0; outline-offset: 1px; }
+.online-box .op-sym { flex: 0 0 auto; font-weight: bold; margin-right: 8px; color: #475569; }
+.online-box .op-opt-text { flex: 1 1 auto; min-width: 0; }
+.online-box .op-opt.selected { background: #eff6ff; border-color: #2b6cb0; color: #1e40af; }
+.online-box .op-opt.selected .op-sym { color: #1e40af; }
+.online-box .op-opt.locked { cursor: default; }
+.online-box .op-opt.locked:hover { border-color: #d1d5db; }
+.online-box .op-opt.locked.selected:hover { border-color: #2b6cb0; }
+.online-box .op-note { color: #64748b; font-size: 13px; text-align: center; padding: 10px; }
 
-/* 시험지를 연 문항은 OMR 격자에서 한 줄 전체를 차지 */
+/* 온라인 보기를 연 문항은 OMR 격자에서 한 줄 전체를 차지 */
 .omr-container > .question-card.online-open { grid-column: 1 / -1; }
 
 @media screen and (min-width: 820px) {
   .question-card.online-open {
     display: grid;
-    grid-template-columns: max-content minmax(240px, 1fr);
-    column-gap: 24px;
+    /* 지문 칸: 본문 353px(15px 글자 23.5자폭 = 영문 약 56자) + 안쪽 여백·테두리 56px */
+    grid-template-columns: 409px minmax(260px, 1fr);
+    column-gap: 20px;
     align-items: start;
   }
   .question-card.online-open > * { grid-column: 2; }
-  .question-card.online-open > .online-box {
+  /* 온라인 보기 상자를 풀어 왼쪽(질문·지문)·오른쪽(선택지) 칸에 각각 배치 */
+  .question-card.online-open > .online-box { display: contents !important; }
+  .question-card.online-open > .online-box > .op-left {
     grid-column: 1;
     grid-row: 1 / span 20;
-    margin-top: 0;
-    /* 지문이 길어도 오른쪽 OMR이 화면에 남도록 시험지 칸만 스크롤 */
+    /* 지문이 길어도 오른쪽 선택지가 화면에 남도록 왼쪽 칸만 스크롤 */
     max-height: calc(100vh - 170px);
     max-height: calc(100dvh - 170px);
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+  .question-card.online-open > .online-box > .op-right { grid-column: 2; margin-top: 15px; }
   .question-card.online-open > .q-header-flex { margin-top: 2px; }
 }
