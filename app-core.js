@@ -378,6 +378,8 @@ function initAdminPage() {
     
     if(selectEl) selectEl.innerHTML = optionsHtml;
     if(weeklySelect) weeklySelect.innerHTML = optionsHtml;
+    // 다른 관리자로 다시 로그인한 경우 이전 주간평가 화면을 비웁니다.
+    if (typeof resetWeeklyView === 'function') resetWeeklyView();
 
     // 필터는 실제 사용 시 renderWkDefaultChips()에서 조회합니다.
     // 로그인 시에는 문제 인덱스나 필터 데이터를 읽지 않습니다.
@@ -529,65 +531,11 @@ on('btnShowMap', 'click', () => {
     });
   }
 
-  // 주간평가 최종 사출 인쇄 단추 연결
- const finalWkSubmit = document.getElementById('btnSubmitWeeklyFinal');
-  if(finalWkSubmit) {
-      finalWkSubmit.onclick = function() {
-          const titleVal = document.getElementById('weeklyTitleInput').value.trim();
-          const checkedBoxes = document.querySelectorAll('#weeklyInvTbody .wk-check:checked');
-          if(checkedBoxes.length === 0) { showCustomAlert('출제용 리스트에서 선택된 문항이 존재하지 않습니다.'); return; }
-
-          const selectEl = document.getElementById('weeklyStudentSelect');
-          const tId = selectEl.value;
-          if(!tId) { showCustomAlert('대상 학생을 설정해 주십시오.'); return; }
-          const found = MANAGED_STUDENTS.find(s => s.id === tId);
-          const userObj = { id: tId, name: found ? found.name : tId };
-
-          const qids = Array.from(checkedBoxes).map(cb => cb.value);
-          
-          // 프론트엔드 자체 주차 계산 (getWeekNumber_ 미정의 오류 방지)
-          const nowD = new Date();
-          const firstDay = new Date(nowD.getFullYear(), nowD.getMonth(), 1);
-          const weekStr = Math.ceil((nowD.getDate() + firstDay.getDay()) / 7) + '주차';
-          const customTitle = titleVal || `${userObj.name} 주간평가(Lv.${document.getElementById('weeklyLevelSlider').value}) - ${nowD.getMonth()+1}월 ${weekStr}`;
-
-          showCustomConfirm(`검토 완료된 ${qids.length}문항을 해당 학생의 주간평가로 정식 배포하고 인쇄용 시험지를 빌드하시겠습니까?`, function() {
-              const loadEl = document.getElementById('loadingOverlay');
-              if(loadEl) {
-                  loadEl.querySelector('.loading-text').innerHTML = `선택된 주간평가 세트 패키징 및 문제지 가공 중...`;
-                  loadEl.classList.add('active');
-              }
-
-              // 주간평가 플래그(true)를 지원하는 createAssignment 함수 호출
-              google.script.run.withSuccessHandler(res => {
-                 if(res && res.error) {
-                      if(loadEl) loadEl.classList.remove('active');
-                      showCustomAlert('주간평가 저장 실패: ' + res.error);
-                      return;
-                  }
-                  ADMIN_HISTORY_CACHE = []; // 새 과제 출제 시 배부기록 캐시 무효화
-                  const printName = `${userObj.name}(${userObj.id})`;
-                  const openPrint = realQs => {
-                      if(loadEl) loadEl.classList.remove('active');
-                      renderQuestionsForPrint(realQs, customTitle, null, printName);
-                      document.getElementById('weeklyTitleInput').value = '';
-                  };
-                  // createAssignment가 인쇄용 문항(res.qs)을 함께 돌려주므로 재요청하지 않습니다.
-                  if (res && Array.isArray(res.qs)) {
-                      openPrint(res.qs);
-                      return;
-                  }
-                  google.script.run.withSuccessHandler(openPrint).withFailureHandler(err => {
-                      if(loadEl) loadEl.classList.remove('active');
-                      showCustomAlert('문항 로드 실패: ' + err);
-                  }).getQuestionsByQids(qids);
-              }).withFailureHandler(err => {
-                  if(loadEl) loadEl.classList.remove('active');
-                  showCustomAlert('주간평가 저장 실패: ' + err);
-              }).createAssignment(userObj, customTitle, qids, true);
-          });
-      };
-  }
+  // 주간평가: 배부 버튼 / 학생 바꾸면 이전 표를 비우고 바로 새로 불러오기
+  const finalWkSubmit = document.getElementById('btnSubmitWeeklyFinal');
+  if (finalWkSubmit) finalWkSubmit.onclick = submitWeeklyFinal;
+  const wkSelect = document.getElementById('weeklyStudentSelect');
+  if (wkSelect) wkSelect.addEventListener('change', () => loadWeeklyStudentData());
 
   // 주간평가 메뉴 진입 시 데이터 자동 맵핑 트리거 바인딩
   const weeklyTabMenu = document.getElementById('topTabAdminWeekly');
@@ -600,12 +548,7 @@ on('btnShowMap', 'click', () => {
           
           // 드롭다운 및 테이블 초기화 안내 상태 동기화
           const selectEl = document.getElementById('weeklyStudentSelect');
-          if(selectEl && selectEl.value === "") {
-              document.getElementById('weeklyInvTbody').innerHTML = `<tr><td colspan="7" style="padding:40px; text-align:center; color:#999;">학생을 선택하고 [학생 데이터 및 필터 로드]를 진행한 뒤 자동 추출을 실행해주세요.</td></tr>`;
-              document.getElementById('weeklyWeakTypeChips').innerHTML = '';
-              document.getElementById('weeklyAnalysisStatus').innerText = '학생을 선택하고 버튼을 눌러주세요.';
-              updateWkCount();
-          }
+          if(selectEl && selectEl.value === "" && typeof resetWeeklyView === 'function') resetWeeklyView();
       });
   }
 
