@@ -1601,57 +1601,6 @@ if (btnPrintChecked) {
 };
 }
 
-// =========================================================
-// [신규] 주간평가 전용 로직 (탭 이동, 학년 토글, 출제 동작)
-// =========================================================
-
-// 2. 출제 버튼 클릭 로직
-const btnGenerateWeekly = document.getElementById('btnGenerateWeekly');
-if (btnGenerateWeekly) {
-    btnGenerateWeekly.addEventListener('click', function() {
-    // (1) 데이터 수집
-    const selectEl = document.getElementById('weeklyStudentSelect');
-    const tId = selectEl.value;
-    if(!tId) { showCustomAlert('대상 학생을 선택해주세요.'); return; }
-    
-    const found = MANAGED_STUDENTS.find(s => s.id === tId);
-    const userObj = { id: tId, name: found.name };
-    
-    // 선택된 칩들의 값을 배열로 수집
-    const weakTypeChips = document.querySelectorAll('#weeklyWeakTypeChips .chip.selected');
-    const weakTypes = Array.from(weakTypeChips).map(chip => chip.value);
-    
-    const level = document.getElementById('weeklyLevelSlider').value;
-    const titleVal = document.getElementById('weeklyTitleInput').value.trim();
-
-    // (2) 생성 확인 및 실행
-    showCustomConfirm(`[전 학년 통합 / 난이도 ${level}단계]\n주간평가 20문항을 밸런스형으로 구성하시겠습니까?\n\n대상 학생: ${found.name}`, function() {
-        const loadEl = document.getElementById('loadingOverlay');
-        if(loadEl) { 
-            loadEl.querySelector('.loading-text').innerHTML = `<span style="color:#7c3aed; font-weight:bold;">${found.name}</span> 학생의 주간평가를 출제 중입니다...<br><span style="font-size:14px;color:#6b7280;">잠시만 기다려주세요.</span>`;
-            loadEl.classList.add('active'); 
-        }
-
-        // 서버 전송 (이전 단계에서 수정한 GS 함수 호출)
-        google.script.run.withSuccessHandler(res => {
-            if(loadEl) loadEl.classList.remove('active');
-            if(res.error) { showCustomAlert(res.error); return; }
-            
-            // 성공 시, 생성된 문항을 인쇄 미리보기로 바로 연결!
-            const printName = `${found.name}(${found.id})`;
-            renderQuestionsForPrint(res.qs, res.title, null, printName);
-            
-            // 과제 제목 입력칸 초기화 (재사용 대비)
-            document.getElementById('weeklyTitleInput').value = '';
-            
-        }).withFailureHandler(err => {
-            if(loadEl) loadEl.classList.remove('active');
-            showCustomAlert('출제 중 오류가 발생했습니다: ' + err);
-        }).createWeeklyAssignmentAuto(userObj, level, titleVal, weakTypes);
-    });
-});
-}
-
 function openTypeStatsModal() {
   const selectEl = document.getElementById('targetStudentSelect');
   const inputEl = document.getElementById('targetStudentName');
@@ -1744,6 +1693,10 @@ function refreshMasterIndex() {
   });
 }
 
+/* ===================== 주간평가 출제 =====================
+ * 선택 상태는 화면의 체크박스가 아니라 WK_SEL(문항 QID 집합)에 둡니다.
+ * 그래서 범위를 바꾸거나 정렬해도 고른 문항이 사라지지 않습니다.
+ */
 const weeklySelState = {
     'm1': { years: new Set(), months: new Set() },
     'm2': { years: new Set(), months: new Set() },
@@ -1752,8 +1705,65 @@ const weeklySelState = {
     'h2': { years: new Set(), months: new Set() },
     'h3': { years: new Set(), months: new Set() }
 };
+const WK_GRADES = [
+    { id: 'm1', name: '중1' }, { id: 'm2', name: '중2' }, { id: 'm3', name: '중3' },
+    { id: 'h1', name: '고1' }, { id: 'h2', name: '고2' }, { id: 'h3', name: '고3' }
+];
+const WK_GRADE_ORDER = { '중1': 1, '중2': 2, '중3': 3, '고1': 4, '고2': 5, '고3': 6 };
+const WK_TARGET = 20;
+const WK_RECENT_MS = 28 * 86400000; // 최근 4주
 let WEEKLY_INVENTORY_DATA = [];
 let WEEKLY_CURRENT_GRADE = 'm1';
+let WK_SEL = new Set();
+let WK_LOADED_FOR = '';      // 표에 올라온 데이터가 어느 학생 것인지
+let WK_LOAD_SEQ = 0;
+let WK_SORT = { key: 'source', dir: 1 };
+let WK_GROUP_SIZE = new Map(); // 지문 세트 키 → 문항 수 (2 이상이면 세트)
+
+function _wkGradeId(name) {
+    const g = WK_GRADES.find(x => x.name === name);
+    return g ? g.id : '';
+}
+function _wkNum(v) {
+    const n = parseInt(String(v == null ? '' : v).replace(/[^0-9]/g, ''), 10);
+    return isNaN(n) ? 9999 : n;
+}
+function _wkDiff(row) {
+    let d = parseInt(row.difficulty, 10);
+    if (isNaN(d) || d < 1) d = 1;
+    if (d > 15) d = 15;
+    return d;
+}
+function _wkStudentName(id) {
+    const f = (MANAGED_STUDENTS || []).find(s => s.id === id);
+    return f ? f.name : id;
+}
+function _wkWeakTypes() {
+    return Array.from(document.querySelectorAll('#weeklyWeakTypeChips .wk-chip.selected')).map(c => String(c.dataset.type || '').trim()).filter(Boolean);
+}
+function _wkIsWeak(row, weak) {
+    const t = String(row.type || '');
+    return weak.some(w => t.includes(w));
+}
+function _wkIsRecent(row) {
+    return row.lastAssigned && (Date.now() - row.lastAssigned) < WK_RECENT_MS;
+}
+function _wkSourceKey(row) {
+    return [WK_GRADE_ORDER[row.grade] || 9, _wkNum(row.year), _wkNum(row.month), String(row.month || ''), _wkNum(row.number), String(row.qid)];
+}
+function _wkCompareSource(a, b) {
+    const ka = _wkSourceKey(a), kb = _wkSourceKey(b);
+    for (let i = 0; i < ka.length; i++) {
+        if (ka[i] < kb[i]) return -1;
+        if (ka[i] > kb[i]) return 1;
+    }
+    return 0;
+}
+function _wkDaysAgo(ts) {
+    if (!ts) return '';
+    const d = Math.floor((Date.now() - ts) / 86400000);
+    return d <= 0 ? '오늘' : d + '일 전';
+}
 
 function switchWkGradeTab(gradeId) {
     WEEKLY_CURRENT_GRADE = gradeId;
@@ -1761,97 +1771,125 @@ function switchWkGradeTab(gradeId) {
     if(!container) return;
     container.querySelectorAll('.grade-tab').forEach(el => {
         const clickAttr = el.getAttribute('onclick');
-        const hasId = clickAttr ? String(clickAttr).includes(gradeId) : false;
-        el.classList.toggle('active', hasId);
+        el.classList.toggle('active', clickAttr ? String(clickAttr).includes("'" + gradeId + "'") : false);
     });
     document.querySelectorAll('#weeklyMakerPage .grade-panel').forEach(el => el.classList.remove('active'));
     const targetPanel = document.getElementById('wk_gp_' + gradeId);
     if(targetPanel) targetPanel.classList.add('active');
 }
 
-function loadWeeklyStudentData() {
-    const selectEl = document.getElementById('weeklyStudentSelect');
-    const val = selectEl ? selectEl.value : '';
-    if(!val) { showCustomAlert('학생을 선택해 주십시오.'); return; }
-
-    let displayName = val;
-    if (MANAGED_STUDENTS && Array.isArray(MANAGED_STUDENTS)) {
-        const found = MANAGED_STUDENTS.find(s => s.id === val);
-        if (found) displayName = found.name;
-    }
-
-    const statusEl = document.getElementById('weeklyAnalysisStatus');
-    if(statusEl) statusEl.innerHTML = '<span style="color:#2b6cb0;">⏳ 전 영역 데이터 인덱싱 및 기록 추적 중...</span>';
-
-    const loadEl = document.getElementById('loadingOverlay');
-    if(loadEl) {
-        loadEl.querySelector('.loading-text').innerHTML = `<span style="color:#7c3aed; font-weight:bold;">${displayName}</span> 학생의 커스텀 리포트 환경 구성 중...`;
-        loadEl.classList.add('active');
-    }
-
-    // [최적화] 2번 직렬 호출 대신 loadWeeklyStudentBundle 단 1회 호출로 통계+인벤토리 동시 수신
-    fetchWeeklyBundle(val, 35).then(bundle => {
-        if(loadEl) loadEl.classList.remove('active');
-        const stats = (bundle && bundle.stats) ? bundle.stats : [];
-        const invData = (bundle && bundle.inventory) ? bundle.inventory : [];
-
-        const chipBox = document.getElementById('weeklyWeakTypeChips');
-        if (!stats || stats.length === 0) {
-            if(statusEl) statusEl.innerHTML = '📝 과거 누적 기록이 없는 학생입니다. 기본 문항 인덱스를 매핑합니다.';
-            renderWkDefaultChips();
-        } else {
-            if(statusEl) statusEl.innerHTML = '✅ 분석 완료 (정답률 40% 이하 취약 항목 우선 할당 가중치 부여)';
-            if(chipBox) {
-                chipBox.innerHTML = '';
-                stats.forEach(s => {
-                    const btn = document.createElement('button');
-                    btn.className = 'chip';
-                    let badgeColor = '#6b7280';
-                    let borderStyle = '1px solid #d1d5db';
-                    if (s.rate <= 40) { badgeColor = '#dc2626'; borderStyle = '2px solid #dc2626'; btn.classList.add('selected'); btn.style.background = '#eff6ff'; }
-                    else if (s.rate <= 70) { badgeColor = '#d97706'; }
-                    btn.innerHTML = `<div style="font-size:12px;">${s.type}</div><div style="font-size:10px; font-weight:bold; color:${badgeColor};">${s.rate}%</div>`;
-                    btn.style.cssText = `width:auto; padding:4px 8px; display:flex; flex-direction:column; align-items:center; border:${borderStyle}; margin: 2px; border-radius:6px;`;
-                    btn.value = s.type;
-                    btn.onclick = function() {
-                        this.classList.toggle('selected');
-                        this.style.background = this.classList.contains('selected') ? '#eff6ff' : '#fff';
-                    };
-                    chipBox.appendChild(btn);
-                });
-            }
-        }
-
-        WEEKLY_INVENTORY_DATA = invData.filter(q => q && q.qid);
-        initWeeklyScopeFilters();
-        renderWeeklyTable();
-    }, err => {
-        if(loadEl) loadEl.classList.remove('active');
-        showCustomAlert('데이터 로드 실패: ' + err);
+// 학년 탭에 '범위 안 문항 수' 표시 → 어느 학년에 범위를 걸었는지 한눈에 보이게
+function updateWkTabBadges() {
+    const container = document.getElementById('weeklyGradeTabs');
+    if (!container) return;
+    container.querySelectorAll('.grade-tab').forEach(el => {
+        const g = WK_GRADES.find(x => String(el.getAttribute('onclick') || '').includes("'" + x.id + "'"));
+        if (!g) return;
+        const st = weeklySelState[g.id];
+        const on = st.years.size > 0 || st.months.size > 0;
+        const n = on ? WEEKLY_INVENTORY_DATA.filter(r => r.grade === g.name && _wkInScope(r)).length : 0;
+        el.innerHTML = g.name + (on ? `<span class="wk-tab-badge">${n}</span>` : '');
+        el.classList.toggle('wk-has-scope', on);
     });
 }
 
-function renderWkDefaultChips() {
-    const chipBox = document.getElementById('weeklyWeakTypeChips');
-    const applyTypes = (types) => {
-        if(chipBox && types) {
-            chipBox.innerHTML = '';
-            types.forEach(t => {
-                const btn = document.createElement('button');
-                btn.className = 'chip'; btn.textContent = t; btn.value = t;
-                btn.style.cssText = 'width:auto; padding:6px 12px; margin:2px; border-radius:6px; border:1px solid #d1d5db; background:#fff;';
-                btn.onclick = function() { this.classList.toggle('selected'); this.style.background = this.classList.contains('selected') ? '#eff6ff' : '#fff'; };
-                chipBox.appendChild(btn);
-            });
+function _wkInScope(row) {
+    const s = weeklySelState[_wkGradeId(row.grade)];
+    if (!s || (s.years.size === 0 && s.months.size === 0)) return false;
+    if (s.years.size && !s.years.has(String(row.year))) return false;
+    if (s.months.size && !s.months.has(row.month)) return false;
+    return true;
+}
+
+// 학생을 바꾸면 이전 학생의 표·선택을 즉시 비웁니다. (다른 학생에게 잘못 배부되는 것 방지)
+function resetWeeklyView(message) {
+    WK_LOAD_SEQ++;
+    WEEKLY_INVENTORY_DATA = [];
+    WK_SEL.clear();
+    WK_LOADED_FOR = '';
+    const chips = document.getElementById('weeklyWeakTypeChips');
+    if (chips) chips.innerHTML = '<span class="wk-empty">학생을 고르면 표시됩니다.</span>';
+    const statusEl = document.getElementById('weeklyAnalysisStatus');
+    if (statusEl) statusEl.textContent = message || '학생을 고르면 풀이 기록을 불러옵니다.';
+    initWeeklyScopeFilters();
+    renderWeeklyTable();
+}
+
+function loadWeeklyStudentData(silent) {
+    const selectEl = document.getElementById('weeklyStudentSelect');
+    const val = selectEl ? selectEl.value : '';
+    if(!val) { resetWeeklyView(); return; }
+
+    const name = _wkStudentName(val);
+    const statusEl = document.getElementById('weeklyAnalysisStatus');
+    const sameStudent = WK_LOADED_FOR === val;
+    if (!sameStudent) {
+        WEEKLY_INVENTORY_DATA = [];
+        WK_SEL.clear();
+        WK_LOADED_FOR = '';
+        renderWeeklyTable('⏳ 풀이 기록을 불러오는 중입니다...');
+    }
+    if (!silent && statusEl) statusEl.innerHTML = `<span class="wk-loading">⏳ ${escapeHTML(name)} 학생의 풀이 기록을 불러오는 중...</span>`;
+
+    const seq = ++WK_LOAD_SEQ;
+    fetchWeeklyBundle(val, 35).then(bundle => {
+        if (seq !== WK_LOAD_SEQ || selectEl.value !== val) return;
+        const stats = (bundle && bundle.stats) ? bundle.stats : [];
+        const invData = (bundle && bundle.inventory) ? bundle.inventory : [];
+        const keepWeak = sameStudent ? _wkWeakTypes() : null;
+
+        WEEKLY_INVENTORY_DATA = invData.filter(q => q && q.qid);
+        WK_GROUP_SIZE = new Map();
+        WEEKLY_INVENTORY_DATA.forEach(r => { const g = String(r.groupHash || r.qid); WK_GROUP_SIZE.set(g, (WK_GROUP_SIZE.get(g) || 0) + 1); });
+        WK_LOADED_FOR = val;
+        // 남아 있는 선택 중 목록에 없는 문항은 정리
+        const ids = new Set(WEEKLY_INVENTORY_DATA.map(r => String(r.qid)));
+        Array.from(WK_SEL).forEach(q => { if (!ids.has(q)) WK_SEL.delete(q); });
+
+        const solvedN = WEEKLY_INVENTORY_DATA.filter(r => r.isSolved).length;
+        if (!stats.length) {
+            if (statusEl) statusEl.innerHTML = `📝 <b>${escapeHTML(name)}</b> · 최근 35일 풀이 기록이 없어 전체 유형을 보여 줍니다.`;
+            renderWkDefaultChips(keepWeak);
+        } else {
+            if (statusEl) statusEl.innerHTML = `✅ <b>${escapeHTML(name)}</b> · 푼 문항 ${solvedN}개 · 정답률 40% 이하 유형을 자동으로 표시했습니다.`;
+            renderWkWeakChips(stats.map(s => ({ type: s.type, rate: s.rate })), keepWeak);
         }
-    };
+        initWeeklyScopeFilters();
+        renderWeeklyTable();
+    }, err => {
+        if (seq !== WK_LOAD_SEQ) return;
+        if (statusEl) statusEl.innerHTML = '<span style="color:#dc2626;">❌ 불러오지 못했습니다. [다시 불러오기]를 눌러 주세요.</span>';
+        renderWeeklyTable('불러오지 못했습니다: ' + escapeHTML(String(err)));
+    });
+}
+
+function renderWkWeakChips(items, keepWeak) {
+    const box = document.getElementById('weeklyWeakTypeChips');
+    if (!box) return;
+    box.innerHTML = '';
+    items.forEach(it => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'wk-chip';
+        btn.dataset.type = it.type;
+        const hasRate = typeof it.rate === 'number';
+        if (hasRate) btn.classList.add(it.rate <= 40 ? 'low' : it.rate <= 70 ? 'mid' : 'high');
+        const on = keepWeak ? keepWeak.includes(it.type) : (hasRate && it.rate <= 40);
+        if (on) btn.classList.add('selected');
+        btn.innerHTML = `<span class="wk-chip-type">${escapeHTML(it.type)}</span>` + (hasRate ? `<span class="wk-chip-rate">${it.rate}%</span>` : '');
+        btn.onclick = () => { btn.classList.toggle('selected'); renderWeeklySummary(); };
+        box.appendChild(btn);
+    });
+    if (!items.length) box.innerHTML = '<span class="wk-empty">유형 정보가 없습니다.</span>';
+}
+
+function renderWkDefaultChips(keepWeak) {
+    const apply = types => renderWkWeakChips((types || []).map(t => ({ type: t })), keepWeak);
     if (SOURCE_FILTERS_CACHE && SOURCE_FILTERS_CACHE.types) {
-        applyTypes(SOURCE_FILTERS_CACHE.types);
+        apply(SOURCE_FILTERS_CACHE.types);
     } else {
-        google.script.run.withSuccessHandler(res => {
-            SOURCE_FILTERS_CACHE = res;
-            if (res && res.types) applyTypes(res.types);
-        }).getSourceFiltersAndTypes();
+        // 서버를 다시 부르지 않고 문항 목록에 있는 유형으로 먼저 표시
+        apply([...new Set(WEEKLY_INVENTORY_DATA.map(r => r.type).filter(Boolean))].sort());
     }
 }
 
@@ -1860,21 +1898,21 @@ function initWeeklyScopeFilters() {
         const box = document.getElementById(containerId);
         if(!box) return;
         box.innerHTML = '';
-        
+        if (!items.length) { box.innerHTML = '<span class="wk-empty">없음</span>'; return; }
+
         const allBtn = document.createElement('span');
         allBtn.className = 'inv-chip'; allBtn.textContent = '전체';
         const currentSet = stateObj[category];
-        const updateAll = () => { allBtn.classList.toggle('selected', items.length > 0 && currentSet.size === items.length); };
-        
+        const updateAll = () => { allBtn.classList.toggle('selected', items.length > 0 && items.every(i => currentSet.has(i))); };
+
         allBtn.onclick = () => {
             if(allBtn.classList.contains('selected')) currentSet.clear();
             else items.forEach(i => currentSet.add(i));
-            updateAll();
             renderWkFilterChips(containerId, items, category, stateObj, onChangeFn);
-            if(onChangeFn) onChangeFn(); else renderWeeklyTable();
+            onChangeFn();
         };
         box.appendChild(allBtn);
-        
+
         items.forEach(item => {
             const chip = document.createElement('span');
             chip.className = 'inv-chip';
@@ -1884,220 +1922,343 @@ function initWeeklyScopeFilters() {
                 if(currentSet.has(item)) currentSet.delete(item); else currentSet.add(item);
                 chip.classList.toggle('selected', currentSet.has(item));
                 updateAll();
-                if(onChangeFn) onChangeFn(); else renderWeeklyTable();
+                onChangeFn();
             };
             box.appendChild(chip);
         });
         updateAll();
     };
 
-    const updateWkCascading = (gId, gName, skipRender = false) => {
+    const sortNum = arr => arr.sort((a, b) => (_wkNum(a) - _wkNum(b)) || String(a).localeCompare(String(b)));
+    const updateWkCascading = (gId, gName, skipRender) => {
         const state = weeklySelState[gId];
         const gradeData = WEEKLY_INVENTORY_DATA.filter(x => x.grade === gName);
-        const gYears = [...new Set(gradeData.map(x => String(x.year)).filter(Boolean))].sort();
-        
+        const gYears = sortNum([...new Set(gradeData.map(x => String(x.year)).filter(Boolean))]);
+        // 목록에 없는 연도 선택은 정리
+        Array.from(state.years).forEach(y => { if (gradeData.length && !gYears.includes(y)) state.years.delete(y); });
+
         let monthData = gradeData;
         if (state.years.size > 0) monthData = monthData.filter(x => state.years.has(String(x.year)));
-        const gMonths = [...new Set(monthData.map(x => x.month).filter(Boolean))].sort();
-        
+        const gMonths = sortNum([...new Set(monthData.map(x => x.month).filter(Boolean))]);
+
         renderWkFilterChips('wkYearChips_' + gId, gYears, 'years', state, () => updateWkCascading(gId, gName, false));
         renderWkFilterChips('wkMonthChips_' + gId, gMonths, 'months', state, () => renderWeeklyTable());
         if (!skipRender) renderWeeklyTable();
     };
 
-    [ 
-      {id: 'm1', name: '중1'}, {id: 'm2', name: '중2'}, {id: 'm3', name: '중3'}, 
-      {id: 'h1', name: '고1'}, {id: 'h2', name: '고2'}, {id: 'h3', name: '고3'} 
-    ].forEach(g => {
-        updateWkCascading(g.id, g.name, true); // 초기 루프 시 6회 중복 렌더링 방지
-    });
+    WK_GRADES.forEach(g => updateWkCascading(g.id, g.name, true));
+    updateWkTabBadges();
 }
-  
-function renderWeeklyTable() {
+
+function _wkSortValue(row, key) {
+    switch (key) {
+        case 'number': return _wkNum(row.number);
+        case 'type': return String(row.type || '');
+        case 'difficulty': return _wkDiff(row);
+        case 'status': return row.isSolved ? (row.wrongCount > 0 ? 1 : 2) : 0;
+        case 'wrong': return row.wrongCount || 0;
+        case 'assign': return row.assignCount || 0;
+        default: return 0;
+    }
+}
+
+function renderWeeklyTable(message) {
     const tbody = document.getElementById('weeklyInvTbody');
     if(!tbody) return;
-    tbody.innerHTML = '';
+    updateWkTabBadges();
+    _wkBindHeaderOnce();
 
-    let hasAnyFilter = false;
-    const activeGrades = [];
-    [ 
-      {id: 'm1', name: '중1'}, {id: 'm2', name: '중2'}, {id: 'm3', name: '중3'}, 
-      {id: 'h1', name: '고1'}, {id: 'h2', name: '고2'}, {id: 'h3', name: '고3'} 
-    ].forEach(g => {
-        if (weeklySelState[g.id].years.size > 0 || weeklySelState[g.id].months.size > 0) {
-            hasAnyFilter = true;
-            activeGrades.push(g.name);
+    const showMsg = html => {
+        tbody.innerHTML = `<tr class="wk-msg"><td colspan="8">${html}</td></tr>`;
+        updateWkCount();
+    };
+    if (message) return showMsg(message);
+    if (!WK_LOADED_FOR || WEEKLY_INVENTORY_DATA.length === 0) return showMsg('학생을 고르고 왼쪽에서 출제 범위를 정해 주세요.');
+
+    const onlySel = document.getElementById('chkWkOnlySelected') && document.getElementById('chkWkOnlySelected').checked;
+    const excludeSolved = document.getElementById('chkWkExcludeSolved') && document.getElementById('chkWkExcludeSolved').checked;
+    const hasScope = WK_GRADES.some(g => weeklySelState[g.id].years.size || weeklySelState[g.id].months.size);
+    if (!hasScope && !onlySel) return showMsg('왼쪽 <b>② 출제 범위</b>에서 학년 탭을 눌러 연도나 월을 골라 주세요.');
+
+    const rows = WEEKLY_INVENTORY_DATA.filter(row => {
+        if (onlySel) return WK_SEL.has(String(row.qid));
+        if (excludeSolved && row.isSolved) return false;
+        return _wkInScope(row);
+    });
+    if (!rows.length) return showMsg(onlySel ? '선택한 문항이 없습니다.' : '조건에 맞는 문항이 없습니다. 범위를 넓혀 보세요.');
+
+    const k = WK_SORT.key, dir = WK_SORT.dir;
+    rows.sort((a, b) => {
+        if (k !== 'source') {
+            const va = _wkSortValue(a, k), vb = _wkSortValue(b, k);
+            const c = (typeof va === 'number') ? va - vb : String(va).localeCompare(String(vb));
+            if (c) return c * dir;
+        }
+        return _wkCompareSource(a, b) * (k === 'source' ? dir : 1);
+    });
+
+    const weak = _wkWeakTypes();
+    const html = rows.map(row => {
+        const qid = String(row.qid);
+        const sel = WK_SEL.has(qid);
+        let stat;
+        if (!row.isSolved) stat = '<span class="wk-st none">미풀이</span>';
+        else if (row.wrongCount > 0) stat = '<span class="wk-st warn">오답 있음</span>';
+        else stat = '<span class="wk-st ok">완료</span>';
+        const wrong = row.wrongCount > 0 ? `<span class="wk-wrong">${row.wrongCount}회</span>` : '<span class="wk-dash">-</span>';
+        const recent = _wkIsRecent(row);
+        const asg = row.assignCount > 0
+            ? `<span class="wk-asg${recent ? ' recent' : ''}" title="마지막 배부: ${_wkDaysAgo(row.lastAssigned)}">${row.assignCount}회${recent ? ' · ' + _wkDaysAgo(row.lastAssigned) : ''}</span>`
+            : '<span class="wk-dash">-</span>';
+        const src = [row.grade, row.year, row.month, row.detail].filter(Boolean).join(' ');
+        const isWeak = weak.length && _wkIsWeak(row, weak);
+        const grouped = (WK_GROUP_SIZE.get(String(row.groupHash || row.qid)) || 0) > 1;
+        return `<tr class="wk-row${sel ? ' selected' : ''}" data-qid="${escapeHTML(qid)}">
+          <td class="c-chk"><input type="checkbox" class="wk-check" value="${escapeHTML(qid)}"${sel ? ' checked' : ''}></td>
+          <td class="c-src">${escapeHTML(src)}${grouped ? ' <span class="wk-set" title="같은 지문 세트는 함께 선택됩니다">세트</span>' : ''}</td>
+          <td class="c-num">${escapeHTML(String(row.number || ''))}</td>
+          <td class="c-type">${isWeak ? '<span class="wk-weak-dot" title="취약 유형">●</span>' : ''}${escapeHTML(row.type || '-')}</td>
+          <td class="c-diff"><span class="wk-diff">${escapeHTML(String(row.difficulty || '-'))}</span></td>
+          <td class="c-stat">${stat}</td>
+          <td class="c-wrong">${wrong}</td>
+          <td class="c-asg">${asg}</td>
+        </tr>`;
+    }).join('');
+    tbody.innerHTML = html;
+    updateWkCount();
+}
+
+// 같은 지문 세트(groupHash)는 함께 선택/해제
+function _wkToggleQid(qid, on) {
+    const row = WEEKLY_INVENTORY_DATA.find(r => String(r.qid) === qid);
+    const g = row ? String(row.groupHash || row.qid) : qid;
+    WEEKLY_INVENTORY_DATA.forEach(r => {
+        if (String(r.groupHash || r.qid) === g || String(r.qid) === qid) {
+            if (on) WK_SEL.add(String(r.qid)); else WK_SEL.delete(String(r.qid));
         }
     });
+}
 
-    if(!hasAnyFilter || WEEKLY_INVENTORY_DATA.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="padding:40px; text-align:center; color:#6b7280;">출제할 학년 및 범주 조건을 좌측 사이드바에서 선택해 주십시오.</td></tr>`;
-        updateWkCount();
-        return;
-    }
+let _wkBound = false;
+function _wkBindHeaderOnce() {
+    if (_wkBound) return;
+    const table = document.getElementById('weeklyInvTable');
+    const tbody = document.getElementById('weeklyInvTbody');
+    if (!table || !tbody) return;
+    _wkBound = true;
 
-    const excludeSolved = document.getElementById('chkWkExcludeSolved') ? document.getElementById('chkWkExcludeSolved').checked : false;
-
-    const filtered = WEEKLY_INVENTORY_DATA.filter(row => {
-        if (excludeSolved && row.isSolved) return false;
-        if (!activeGrades.includes(row.grade)) return false;
-        
-        let gradeId = row.grade === '중1'?'m1':row.grade==='중2'?'m2':row.grade==='중3'?'m3':row.grade==='고1'?'h1':row.grade==='고2'?'h2':'h3';
-        const s = weeklySelState[gradeId];
-        if(s && s.years.size && !s.years.has(String(row.year))) return false;
-        if(s && s.months.size && !s.months.has(row.month)) return false;
-        return true;
-    });
-
-    if(filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="padding:20px; text-align:center;">조건 필터에 일치하는 문항이 보관함에 존재하지 않습니다.</td></tr>`;
-        updateWkCount();
-        return;
-    }
-
-    filtered.sort((a,b) => String(a.qid).localeCompare(String(b.qid)));
-
-    const fragment = document.createDocumentFragment();
-    filtered.forEach(row => {
-        const tr = document.createElement('tr');
-        tr.style.borderBottom = '1px solid #eee';
-        tr.className = 'wk-row';
-
-        let statusBadge = row.isSolved 
-            ? (row.wrongCount > 0 ? '<span style="color:#d97706; font-weight:bold;">[완료]</span>' : '<span style="color:#059669; font-weight:bold;">[완료]</span>')
-            : '<span style="color:#dc2626; font-weight:bold;">[미완]</span>';
-        let wrongCountBadge = row.wrongCount > 0 ? `<span style="color:#dc2626; font-weight:bold;">${row.wrongCount}회</span>` : '<span style="color:#9ca3af;">-</span>';
-        const sourceStr = [row.grade, row.year, row.month, row.detail].filter(Boolean).join(' ');
-
-        tr.innerHTML = `
-          <td style="padding:8px; text-align:center;">
-            <input type="checkbox" class="wk-check" value="${row.qid}" data-difficulty="${row.difficulty}" data-type="${row.type}" data-group="${row.groupHash || row.qid}">
-          </td>
-          <td style="padding:8px; text-align:center;">${statusBadge}</td>
-          <td style="padding:8px; text-align:center;">${wrongCountBadge}</td>
-          <td style="padding:8px; text-align:left;">${sourceStr}</td>
-          <td style="padding:8px; text-align:left;">${row.type || '-'}</td>
-          <td style="padding:8px; text-align:center; font-weight:bold;">${row.difficulty || '-'}</td>
-          <td style="padding:8px; text-align:center; color:#666;">${row.number || ''}</td>
-        `;
-
-        tr.addEventListener('click', (e) => {
-            if (e.target.tagName !== 'INPUT') {
-                const cb = tr.querySelector('.wk-check');
-                cb.checked = !cb.checked;
-            }
-            const groupKey = tr.querySelector('.wk-check').getAttribute('data-group');
-            const isChecked = tr.querySelector('.wk-check').checked;
-            if(groupKey) {
-                document.querySelectorAll(`#weeklyInvTbody .wk-check[data-group="${groupKey}"]`).forEach(sib => sib.checked = isChecked);
-            }
-            updateWkCount();
+    tbody.addEventListener('click', e => {
+        const tr = e.target.closest('tr.wk-row');
+        if (!tr) return;
+        const qid = tr.dataset.qid;
+        const on = e.target.classList.contains('wk-check') ? e.target.checked : !WK_SEL.has(qid);
+        _wkToggleQid(qid, on);
+        // 다시 그리지 않고 해당 행들만 갱신 (스크롤 위치 유지)
+        tbody.querySelectorAll('tr.wk-row').forEach(r => {
+            const s = WK_SEL.has(r.dataset.qid);
+            r.classList.toggle('selected', s);
+            const cb = r.querySelector('.wk-check');
+            if (cb) cb.checked = s;
         });
-
-        fragment.appendChild(tr);
+        updateWkCount();
     });
-    tbody.appendChild(fragment);
 
-    // 테이블 헤더 체크박스 로직 연동
-    const wkCheckAll = document.getElementById('weeklyCheckAll');
-    if(wkCheckAll) {
-        wkCheckAll.onchange = function(e) {
-            const isChecked = e.target.checked;
-            document.querySelectorAll('#weeklyInvTbody .wk-check').forEach(cb => cb.checked = isChecked);
-            updateWkCount();
-        };
-    }
-    updateWkCount();
+    const all = document.getElementById('weeklyCheckAll');
+    if (all) all.addEventListener('change', () => {
+        tbody.querySelectorAll('tr.wk-row').forEach(r => _wkToggleQid(r.dataset.qid, all.checked));
+        renderWeeklyTable();
+    });
+
+    table.querySelectorAll('th[data-wsort]').forEach(th => {
+        th.addEventListener('click', () => {
+            const key = th.dataset.wsort;
+            if (WK_SORT.key === key) WK_SORT.dir *= -1;
+            else WK_SORT = { key: key, dir: (key === 'source' || key === 'number' || key === 'type' || key === 'difficulty') ? 1 : -1 };
+            renderWeeklyTable();
+        });
+    });
+}
+
+function clearWeeklySelection() {
+    WK_SEL.clear();
+    renderWeeklyTable();
 }
 
 function updateWkCount() {
-    const count = document.querySelectorAll('.wk-check:checked').length;
+    const n = WK_SEL.size;
     const display = document.getElementById('weeklySelectedCount');
-    if(display) display.innerText = count;
+    if (display) {
+        display.innerText = n;
+        const box = display.closest('.wk-count');
+        if (box) box.className = 'wk-count' + (n === WK_TARGET ? ' ok' : n > WK_TARGET ? ' over' : '');
+    }
+    const all = document.getElementById('weeklyCheckAll');
+    if (all) {
+        const vis = Array.from(document.querySelectorAll('#weeklyInvTbody tr.wk-row'));
+        all.checked = vis.length > 0 && vis.every(r => WK_SEL.has(r.dataset.qid));
+    }
+    // 표 헤더 정렬 표시
+    document.querySelectorAll('#weeklyInvTable th[data-wsort]').forEach(th => {
+        th.classList.toggle('sorted', th.dataset.wsort === WK_SORT.key);
+        th.dataset.dir = th.dataset.wsort === WK_SORT.key ? (WK_SORT.dir > 0 ? '▲' : '▼') : '';
+    });
+    renderWeeklySummary();
 }
 
-function runWeeklyAutoSelection() {
-    const targetLevel = parseInt(document.getElementById('weeklyLevelSlider').value, 10) || 5;
-    const checkboxes = Array.from(document.querySelectorAll('#weeklyInvTbody .wk-check'));
-    
-    if(checkboxes.length === 0) {
-        showCustomAlert('추출 대상 문항이 없습니다. 먼저 왼쪽에서 학년 및 범위 조건을 클릭하여 조회해 주십시오.');
-        return;
-    }
+function _wkSelectedRows() {
+    return WEEKLY_INVENTORY_DATA.filter(r => WK_SEL.has(String(r.qid)));
+}
 
-    checkboxes.forEach(cb => cb.checked = false);
-
+function renderWeeklySummary() {
+    const box = document.getElementById('weeklySummary');
+    if (!box) return;
+    const rows = _wkSelectedRows();
+    if (!rows.length) { box.innerHTML = ''; box.style.display = 'none'; return; }
+    box.style.display = '';
     const byDiff = {};
-    for(let i=1; i<=15; i++) byDiff[i] = [];
+    rows.forEach(r => { const d = _wkDiff(r); byDiff[d] = (byDiff[d] || 0) + 1; });
+    const avg = rows.reduce((a, r) => a + _wkDiff(r), 0) / rows.length;
+    const weak = _wkWeakTypes();
+    const weakN = weak.length ? rows.filter(r => _wkIsWeak(r, weak)).length : 0;
+    const unsolved = rows.filter(r => !r.isSolved).length;
+    const recentN = rows.filter(_wkIsRecent).length;
+    const diffs = Object.keys(byDiff).map(Number).sort((a, b) => a - b)
+        .map(d => `<span class="wk-sum-diff"><b>${d}</b>단계 ${byDiff[d]}</span>`).join('');
+    box.innerHTML = `
+      <span class="wk-sum-item">평균 난이도 <b>${avg.toFixed(1)}</b></span>
+      <span class="wk-sum-item wk-sum-diffs">${diffs}</span>
+      ${weak.length ? `<span class="wk-sum-item">취약 유형 <b>${weakN}</b>문항</span>` : ''}
+      <span class="wk-sum-item">미풀이 <b>${unsolved}</b>문항</span>
+      ${recentN ? `<span class="wk-sum-item warn">최근 4주 배부 <b>${recentN}</b>문항</span>` : ''}`;
+}
 
-    const selectedWeakChips = document.querySelectorAll('#weeklyWeakTypeChips .chip.selected');
-    const activeWeakTypes = Array.from(selectedWeakChips).map(c => String(c.value).trim());
+/* 자동 선택: 범위 안 문항을 지문 세트 단위로 묶어
+ * ① 중심 난이도 ±2 분포(2·4·8·4·2) ② 취약 유형 우선 ③ 정확히 20문항을 넘지 않게 고릅니다.
+ */
+function runWeeklyAutoSelection() {
+    if (!WK_LOADED_FOR || !WEEKLY_INVENTORY_DATA.length) { showCustomAlert('먼저 학생을 골라 풀이 기록을 불러와 주세요.'); return; }
+    const targetLevel = parseInt(document.getElementById('weeklyLevelSlider').value, 10) || 5;
+    const excludeSolved = document.getElementById('chkWkExcludeSolved') && document.getElementById('chkWkExcludeSolved').checked;
+    const skipRecent = document.getElementById('chkWkSkipRecent') && document.getElementById('chkWkSkipRecent').checked;
 
-    checkboxes.forEach(cb => {
-        let d = parseInt(cb.getAttribute('data-difficulty'), 10);
-        if(isNaN(d) || d < 1) d = 1;
-        if(d > 15) d = 15;
-        byDiff[d].push(cb);
+    const inScope = WEEKLY_INVENTORY_DATA.filter(_wkInScope);
+    if (!inScope.length) { showCustomAlert('왼쪽 ② 출제 범위에서 학년 탭을 눌러 연도나 월을 먼저 골라 주세요.'); return; }
+
+    const pool = inScope.filter(r => !(excludeSolved && r.isSolved) && !(skipRecent && _wkIsRecent(r)));
+    const weak = _wkWeakTypes();
+
+    // 지문 세트 묶기 (세트 중 하나라도 빠지는 조건이면 세트 전체를 뺌)
+    const poolIds = new Set(pool.map(r => String(r.qid)));
+    const groups = new Map();
+    inScope.forEach(r => {
+        const g = String(r.groupHash || r.qid);
+        if (!groups.has(g)) groups.set(g, []);
+        groups.get(g).push(r);
+    });
+    const cands = [];
+    groups.forEach(items => {
+        if (!items.every(r => poolIds.has(String(r.qid)))) return;
+        const diff = Math.round(items.reduce((a, r) => a + _wkDiff(r), 0) / items.length);
+        cands.push({ items: items, size: items.length, diff: diff, weak: items.some(r => _wkIsWeak(r, weak)), rnd: Math.random() });
     });
 
-    const distribution = { '-2': 2, '-1': 4, '0': 8, '1': 4, '2': 2 };
-    const reqCounts = {};
-    for (let i = 1; i <= 15; i++) reqCounts[i] = 0;
-    for (let offset in distribution) {
-        let l = targetLevel + parseInt(offset, 10);
-        if (l < 1) l = 1;
-        if (l > 15) l = 15;
-        reqCounts[l] += distribution[offset];
-    }
+    const need = {};
+    const dist = [[0, 8], [-1, 4], [1, 4], [-2, 2], [2, 2]];
+    dist.forEach(([off, n]) => {
+        const l = Math.min(15, Math.max(1, targetLevel + off));
+        need[l] = (need[l] || 0) + n;
+    });
 
-    let totalPicked = 0;
-    const pickedGroups = new Set();
+    const picked = [];
+    let total = 0;
+    const used = new Set();
+    const take = c => { used.add(c); picked.push(c); total += c.size; };
+    const byPref = (a, b) => (b.weak - a.weak) || (a.size - b.size) || (a.rnd - b.rnd);
 
-    for (let lvl = 1; lvl <= 15; lvl++) {
-        let needed = reqCounts[lvl];
-        if (needed <= 0) continue;
-
-        let pools = byDiff[lvl] || [];
-        if(pools.length === 0) continue;
-
-        pools.sort((a, b) => {
-            const typeA = a.getAttribute('data-type') || '';
-            const typeB = b.getAttribute('data-type') || '';
-            const matchA = activeWeakTypes.some(wt => typeA.includes(wt)) ? 1 : 0;
-            const matchB = activeWeakTypes.some(wt => typeB.includes(wt)) ? 1 : 0;
-            if (matchA !== matchB) return matchB - matchA;
-            return Math.random() - 0.5;
+    // 1차: 난이도별 필요 수만큼 (중심 난이도부터)
+    dist.map(([off]) => Math.min(15, Math.max(1, targetLevel + off)))
+        .filter((l, i, arr) => arr.indexOf(l) === i)
+        .forEach(l => {
+            cands.filter(c => c.diff === l && !used.has(c)).sort(byPref).forEach(c => {
+                if (need[l] >= c.size && total + c.size <= WK_TARGET) { take(c); need[l] -= c.size; }
+            });
         });
+    // 2차: 모자라면 중심 난이도에 가까운 순으로 채움
+    cands.filter(c => !used.has(c))
+        .sort((a, b) => (Math.abs(a.diff - targetLevel) - Math.abs(b.diff - targetLevel)) || byPref(a, b))
+        .forEach(c => { if (total + c.size <= WK_TARGET) take(c); });
 
-        pools.forEach(cb => {
-            if(needed <= 0) return;
-            const gKey = cb.getAttribute('data-group');
-            const groupItems = checkboxes.filter(item => item.getAttribute('data-group') === gKey);
-            
-            if(!pickedGroups.has(gKey)) {
-                groupItems.forEach(item => item.checked = true);
-                pickedGroups.add(gKey);
-                needed -= groupItems.length;
-                totalPicked += groupItems.length;
-            }
-        });
+    WK_SEL.clear();
+    picked.forEach(c => c.items.forEach(r => WK_SEL.add(String(r.qid))));
+    const onlySel = document.getElementById('chkWkOnlySelected');
+    if (onlySel) onlySel.checked = false;
+    WK_SORT = { key: 'source', dir: 1 };
+    renderWeeklyTable();
+
+    // 선택된 첫 행이 보이게
+    const first = document.querySelector('#weeklyInvTbody tr.wk-row.selected');
+    if (first) first.scrollIntoView({ block: 'nearest' });
+
+    if (total < WK_TARGET) {
+        const why = [];
+        if (skipRecent) why.push('최근 4주 배부 문항 빼기');
+        if (excludeSolved) why.push('안 푼 문제만');
+        showToast(`범위 안 문항이 부족해 ${total}문항만 골랐습니다.` + (why.length ? ` (${why.join(', ')} 조건을 풀거나 범위를 넓혀 보세요)` : ' 범위를 넓혀 보세요.'), 'error');
+    } else {
+        showToast(`${total}문항을 골랐습니다. 표에서 확인하고 바꿀 수 있습니다.`);
     }
-
-    if(totalPicked < 20) {
-        let remaining = checkboxes.filter(cb => !cb.checked);
-        remaining.sort(() => Math.random() - 0.5);
-        for(let cb of remaining) {
-            if(totalPicked >= 20) break;
-            const gKey = cb.getAttribute('data-group');
-            const groupItems = checkboxes.filter(item => item.getAttribute('data-group') === gKey && !item.checked);
-            groupItems.forEach(item => item.checked = true);
-            totalPicked += groupItems.length;
-        }
-    }
-
-    updateWkCount();
-    showCustomAlert(`🎯 지정 범위 내부 풀에서 조건(난이도 분포 및 오답률 높은 유형)에 맞춰 20문항이 엄선 및 자동 체크되었습니다.\n테이블을 확인하며 문항을 최종 조율해 주십시오.`);
 }
+
+// 배부하고 인쇄
+function submitWeeklyFinal() {
+    const selectEl = document.getElementById('weeklyStudentSelect');
+    const tId = selectEl ? selectEl.value : '';
+    if (!tId) { showCustomAlert('학생을 먼저 골라 주세요.'); return; }
+    if (WK_LOADED_FOR !== tId) { showCustomAlert('선택한 학생의 기록을 아직 불러오지 않았습니다. 잠시 후 다시 눌러 주세요.'); return; }
+    const rows = _wkSelectedRows().sort(_wkCompareSource);
+    if (!rows.length) { showCustomAlert('배부할 문항을 골라 주세요.'); return; }
+
+    const name = _wkStudentName(tId);
+    const userObj = { id: tId, name: name };
+    const qids = rows.map(r => String(r.qid));
+    const level = Math.round(rows.reduce((a, r) => a + _wkDiff(r), 0) / rows.length);
+    const nowD = new Date();
+    const firstDay = new Date(nowD.getFullYear(), nowD.getMonth(), 1);
+    const weekStr = Math.ceil((nowD.getDate() + firstDay.getDay()) / 7) + '주차';
+    const titleInput = document.getElementById('weeklyTitleInput');
+    const customTitle = (titleInput && titleInput.value.trim()) || `${name} 주간평가(Lv.${level}) - ${nowD.getMonth() + 1}월 ${weekStr}`;
+    const warn = rows.length !== WK_TARGET ? `\n(권장 20문항과 다릅니다: ${rows.length}문항)` : '';
+
+    showCustomConfirm(`${name} 학생에게 주간평가 ${rows.length}문항을 배부하고 시험지를 엽니다.\n제목: ${customTitle}${warn}`, function() {
+        const loadEl = document.getElementById('loadingOverlay');
+        if (loadEl) {
+            loadEl.querySelector('.loading-text').innerHTML = '주간평가를 배부하고 시험지를 만드는 중...';
+            loadEl.classList.add('active');
+        }
+        const done = () => { if (loadEl) loadEl.classList.remove('active'); };
+        google.script.run.withSuccessHandler(res => {
+            if (res && res.error) { done(); showCustomAlert('배부 실패: ' + res.error); return; }
+            ADMIN_HISTORY_CACHE = [];
+            const printName = `${name}(${tId})`;
+            const finish = realQs => {
+                done();
+                renderQuestionsForPrint(realQs, customTitle, null, printName);
+                // 같은 시험을 두 번 내지 않도록 선택·제목을 비우고, 배부 횟수를 다시 받아 옵니다.
+                WK_SEL.clear();
+                if (titleInput) titleInput.value = '';
+                renderWeeklyTable();
+                loadWeeklyStudentData(true);
+            };
+            if (res && Array.isArray(res.qs)) { finish(res.qs); return; }
+            google.script.run.withSuccessHandler(finish).withFailureHandler(err => {
+                done(); showCustomAlert('문항을 불러오지 못했습니다: ' + err);
+            }).getQuestionsByQids(qids);
+        }).withFailureHandler(err => {
+            done(); showCustomAlert('배부 실패: ' + err);
+        }).createAssignment(userObj, customTitle, qids, true);
+    });
+}
+
 // [추가] 배부 기록 조회 버튼 자동 바인딩
 document.addEventListener('DOMContentLoaded', function() {
   const btnHistorySearch = document.getElementById('btnSearchHistory') || document.getElementById('btnLoadHistory');
@@ -2147,9 +2308,10 @@ function invalidateQuestionMeta() {
 }
 
 // 서버 getAdminQuestionInventory와 같은 모양의 행으로 합칩니다.
-function buildInventoryRows(metaRows, qstats, acounts) {
+function buildInventoryRows(metaRows, qstats, acounts, alast) {
   qstats = qstats || {};
   acounts = acounts || {};
+  alast = alast || {};
   return (metaRows || []).map(m => {
     const qid = m[0], extId = m[7] || '', linkedId = m[8] || '';
     const st = qstats[String(extId).trim()] || qstats[qid] || null;
@@ -2157,7 +2319,7 @@ function buildInventoryRows(metaRows, qstats, acounts) {
       qid: qid, grade: m[1], year: m[2], month: m[3], detail: m[4], type: m[5], difficulty: m[6],
       number: extId, isSolved: st ? st[0] === 1 : false, wrongCount: st ? st[1] : 0,
       lastTs: st ? st[2] : null, groupHash: linkedId || extId || qid,
-      assignCount: acounts[qid] || 0
+      assignCount: acounts[qid] || 0, lastAssigned: alast[qid] || 0
     };
   });
 }
@@ -2165,7 +2327,7 @@ function buildInventoryRows(metaRows, qstats, acounts) {
 // 관리자 '불러오기'용. 새 서버 함수가 없으면(구버전 GS) 기존 통합 함수로 대체합니다.
 function fetchInventoryRows(studentId) {
   return Promise.all([loadQuestionMeta(), gsCall('getStudentQuestionStats', [studentId])])
-    .then(([meta, st]) => buildInventoryRows(meta, st && st.qstats, st && st.acounts))
+    .then(([meta, st]) => buildInventoryRows(meta, st && st.qstats, st && st.acounts, st && st.alast))
     .catch(err => {
       if (isMissingServerFunction(err)) return gsCall('getAdminQuestionInventory', [studentId]);
       throw err;
@@ -2175,7 +2337,7 @@ function fetchInventoryRows(studentId) {
 // 주간평가 '학생 데이터 로드'용
 function fetchWeeklyBundle(studentId, days) {
   return Promise.all([loadQuestionMeta(), gsCall('loadWeeklyStudentStats', [studentId, days])])
-    .then(([meta, r]) => ({ stats: (r && r.stats) || [], inventory: buildInventoryRows(meta, r && r.qstats, r && r.acounts) }))
+    .then(([meta, r]) => ({ stats: (r && r.stats) || [], inventory: buildInventoryRows(meta, r && r.qstats, r && r.acounts, r && r.alast) }))
     .catch(err => {
       if (isMissingServerFunction(err)) return gsCall('loadWeeklyStudentBundle', [studentId, days]);
       throw err;
